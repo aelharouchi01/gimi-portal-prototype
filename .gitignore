@@ -1,0 +1,4 @@
+# Nothing here needs ignoring: no build step, no dependencies.
+# Kept so editors do not add their own.
+.DS_Store
+Thumbs.db
