@@ -346,7 +346,12 @@ function adminOverview() {
         ${kpi("finance", "Outstanding", money(invoiced - received))}
       </div>
       <p class="count" style="margin-top:8px">
-        Invoiced excludes drafts. Outstanding is invoiced minus received.
+        <strong>Partner revenue</strong> is what partners billed their own clients: the full
+        certificate value for everyone they trained.
+        <strong>GIMI invoiced</strong> is GIMI's part of that, billed to the partner.
+        Both are entered by hand on each invoice. Neither is calculated from the other,
+        because the share is negotiated per partner and per product.
+        Invoiced excludes drafts, and outstanding is invoiced minus received.
       </p>
     </div>
   </section>
