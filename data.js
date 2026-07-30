@@ -1,9 +1,12 @@
 /* ===========================================================================
    Prototype data.
 
-   Partners and the course taxonomy are REAL, generated into real-data.js from
-   GIMI's own workbooks. Students, invoices, leads and votes are invented,
-   because no real figures for those were supplied.
+   Partners are REAL, from "All Current CTPs" in the CTP Strategy workbook.
+   The 29 certifications are REAL, from GIMI_Product_Catalogue_V68.pptx, with the
+   catalogue's own descriptions and prices. Both arrive via real-data.js.
+
+   Students, invoices, leads and votes are invented, because no real figures for
+   those were supplied.
 
    Money is integer cents. Invoices carry two independent figures and there is
    no percentage anywhere in this file, per CLAUDE.md.
@@ -42,8 +45,12 @@ const DB = {
     { id: 2, name: "Internal note", position: 2 },
   ],
 
-  partners: REAL_PARTNERS.map((r) => ({
-    id: "p" + r.n,
+  partners: REAL_PARTNERS.map((r, index) => ({
+    // Derived from position, not from a field in the generated file. It was built
+    // from a row number once, the generator stopped emitting it, and every partner
+    // silently became "pundefined" — which made every partner-scoped filter return
+    // the whole network.
+    id: "p" + (index + 1),
     name: r.name,
     country: r.country || "—",
     region: r.region || "—",
@@ -103,6 +110,36 @@ const FIRST = ["Nadia","Omar","Leila","Karim","Anna","Lars","Sofia","Ahmed","Mar
 const LAST = ["Alaoui","Fassi","Cherkaoui","Benali","Bergström","Nyberg","Holm","Al Suwaidi","Hassan","Khalid","Muñoz","Soto","Mensah","Bello","Wei","Sharma","Adeyemi","Costa","Petrova","Nasser"];
 const RESULTS = ["PASSED","PASSED","PASSED","PASSED","FAILED","IN_PROGRESS","ENROLLED"];
 
+/* Weighted to the shape of GIMI's real LMS enrolment, where Level 1 Associate
+   dwarfs everything else, then Level 2 Master and Catalyst, with a long tail.
+   An even spread across all 29 certifications is not what the network looks
+   like, and it makes "certifications by type" say nothing. */
+const CERT_WEIGHTS = [
+  ["Certified Innovation Professional Level 1: Associate", 22],
+  ["Certified Innovation Professional Level 2: Master", 7],
+  ["Problem Solving Certified Catalyst", 6],
+  ["Certified Chief Innovation Officer Level 3: Manager", 4],
+  ["Primer", 3],
+  ["Certified Design Thinking: Level 1", 3],
+  ["Certified Foresight Professional: Level 1", 3],
+  ["Certified Chief Innovation Officer Level 4: Leader", 2],
+  ["Certified GIMI Impact: Students", 2],
+];
+
+// Guards against a rename in the catalogue silently producing students enrolled
+// on a certification that no longer exists.
+const CERT_POOL = CERT_WEIGHTS
+  .filter(([name]) => CERTIFICATIONS.includes(name))
+  .flatMap(([name, weight]) => Array(weight).fill(name));
+
+const ENROLLABLE = CERT_POOL.length ? CERT_POOL : CERTIFICATIONS;
+
+// Named rather than indexed, so reordering the catalogue cannot silently change
+// which certification a seeded roster is for.
+const CERT_L1 = "Certified Innovation Professional Level 1: Associate";
+const CERT_L2 = "Certified Innovation Professional Level 2: Master";
+const CERT_CCIO3 = "Certified Chief Innovation Officer Level 3: Manager";
+
 let sid = 0;
 active.slice(0, 12).forEach((p, pi) => {
   const howMany = 3 + (pi % 4);
@@ -117,7 +154,7 @@ active.slice(0, 12).forEach((p, pi) => {
       city: "",
       country: p.country,
       company: "",
-      cert: pick(CERTIFICATIONS, sid + pi),
+      cert: pick(ENROLLABLE, sid * 7 + pi * 3),
       examDate: `2026-0${(sid % 7) + 1}-1${sid % 9}`,
       lang: pick(EXAM_LANGUAGES, pi),
       format: sid % 2 ? "ONSITE_PROCTORED" : "SEB_SOFTWARE",
@@ -134,9 +171,9 @@ DB.submissions.push(
     fileName: `${slug(active[0].name)}_enrollment_sept.xlsx`,
     submittedAt: "2026-07-27", status: "PENDING",
     roster: [
-      { first: "Hicham", last: "Tazi", email: "hicham.tazi@example.com", cert: CERTIFICATIONS[1], examDate: "2026-09-12", lang: "English", format: "ONSITE_PROCTORED", company: "Ministry of Industry" },
-      { first: "Amina", last: "Berrada", email: "amina.berrada@example.com", cert: CERTIFICATIONS[1], examDate: "2026-09-12", lang: "English", format: "ONSITE_PROCTORED", company: "Ministry of Industry" },
-      { first: "Rachid", last: "Moussaoui", email: "rachid.m@example.com", cert: CERTIFICATIONS[3], examDate: "2026-09-12", lang: "French", format: "SEB_SOFTWARE", company: "Lydec" },
+      { first: "Hicham", last: "Tazi", email: "hicham.tazi@example.com", cert: CERT_L1, examDate: "2026-09-12", lang: "English", format: "ONSITE_PROCTORED", company: "Ministry of Industry" },
+      { first: "Amina", last: "Berrada", email: "amina.berrada@example.com", cert: CERT_L1, examDate: "2026-09-12", lang: "English", format: "ONSITE_PROCTORED", company: "Ministry of Industry" },
+      { first: "Rachid", last: "Moussaoui", email: "rachid.m@example.com", cert: CERT_L2, examDate: "2026-09-12", lang: "French", format: "SEB_SOFTWARE", company: "Lydec" },
     ],
   },
   {
@@ -144,9 +181,9 @@ DB.submissions.push(
     fileName: `${slug(active[1].name)}_batch_04.xlsx`,
     submittedAt: "2026-07-28", status: "PENDING",
     roster: [
-      { first: "Noura", last: "Al Zaabi", email: "noura@example.com", cert: CERTIFICATIONS[11], examDate: "2026-10-01", lang: "Arabic", format: "ONSITE_PROCTORED", company: "Masdar" },
+      { first: "Noura", last: "Al Zaabi", email: "noura@example.com", cert: CERT_CCIO3, examDate: "2026-10-01", lang: "Arabic", format: "ONSITE_PROCTORED", company: "Masdar" },
       // No email. Blocks confirmation until the partner fixes it.
-      { first: "Saeed", last: "Al Nuaimi", email: "", cert: CERTIFICATIONS[11], examDate: "2026-10-01", lang: "Arabic", format: "ONSITE_PROCTORED", company: "Masdar" },
+      { first: "Saeed", last: "Al Nuaimi", email: "", cert: CERT_CCIO3, examDate: "2026-10-01", lang: "Arabic", format: "ONSITE_PROCTORED", company: "Masdar" },
     ],
   },
 );

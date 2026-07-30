@@ -302,7 +302,10 @@ function adminOverview() {
 
   const byCert = {};
   DB.students.forEach((s) => { byCert[s.cert] = (byCert[s.cert] ?? 0) + 1; });
-  const maxCert = Math.max(1, ...Object.values(byCert));
+  // Biggest first, and only certifications anyone is actually enrolled on. With 29 in
+  // the catalogue, listing the empty ones is 20 rows of zeroes.
+  const certRows = Object.entries(byCert).sort((a, b) => b[1] - a[1]);
+  const totalStudents = DB.students.length;
 
   return `
   <div class="page-head">
@@ -350,14 +353,25 @@ function adminOverview() {
 
   <section class="block">
     <h2>Certifications by type</h2>
+    <p class="count" style="margin-bottom:10px">
+      Showing the ${certRows.length} certifications with students enrolled, of
+      ${DB.catalogue.length} in the catalogue. Percentages are of all ${totalStudents} students.
+    </p>
     <div class="table-scroll"><table>
-      <thead><tr><th>Certification</th><th class="num">Students</th><th style="width:40%">Share</th></tr></thead>
-      <tbody>${Object.entries(byCert).map(([cert, n]) => `
+      <thead><tr>
+        <th>Certification</th><th class="num">Students</th>
+        <th class="num">% of all students</th><th style="width:30%"></th>
+      </tr></thead>
+      <tbody>${certRows.map(([cert, n]) => {
+        const pct = totalStudents ? Math.round((n / totalStudents) * 100) : 0;
+        return `
         <tr>
           <td>${esc(cert)}</td>
           <td class="num">${n}</td>
-          <td><div class="bar"><i style="width:${(n / maxCert) * 100}%"></i></div></td>
-        </tr>`).join("")}
+          <td class="num">${pct}%</td>
+          <td><div class="bar"><i style="width:${pct}%"></i></div></td>
+        </tr>`;
+      }).join("")}
       </tbody>
     </table></div>
   </section>`;
