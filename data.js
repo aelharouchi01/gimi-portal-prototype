@@ -155,7 +155,8 @@ active.slice(0, 12).forEach((p, pi) => {
       country: p.country,
       company: "",
       cert: pick(ENROLLABLE, sid * 7 + pi * 3),
-      examDate: `2026-0${(sid % 7) + 1}-1${sid % 9}`,
+      // Spread across two years so the year filter has something to do.
+      examDate: `${sid % 3 === 0 ? 2025 : 2026}-0${(sid % 9) + 1}-1${sid % 9}`,
       lang: pick(EXAM_LANGUAGES, pi),
       format: sid % 2 ? "ONSITE_PROCTORED" : "SEB_SOFTWARE",
       status: pick(RESULTS, sid),
@@ -188,26 +189,37 @@ DB.submissions.push(
   },
 );
 
-/* Invoices across the lifecycle, including one draft no partner may see. */
+/* Invoices across the lifecycle and across two years, including one draft that no
+   partner may see.
+     description, headcount, partnerRevenue, gimiAmount, status, bank ref, year
+   Partner revenue is the headcount times the catalogue certificate price, which is
+   what the figure means. The GIMI amount is a plausible negotiated number and is
+   NOT a fixed proportion of it: the last row is a student cohort at half price,
+   and the second is a partner GIMI charges less. That variation is the reason the
+   product refuses to derive one figure from the other. */
 const invoiceSeed = [
-  ["Level 1 cohort, May 2026", 12, 4800000, 1440000, "PAID", "TRF-88213"],
-  ["Level 2 and CCIO, April 2026", 9, 5400000, 1800000, "PAID", "SEB-55190"],
-  ["CCIO cohort, March 2026", 7, 6300000, 2100000, "PAYMENT_REPORTED", "ENBD-77410"],
-  ["Catalyst cohort, June 2026", 5, 1500000, 600000, "SENT", null],
-  ["Design Thinking L1, July 2026", 4, 1200000, 480000, "SENT", null],
-  ["Level 1 cohort, July 2026", 6, 0, 0, "DRAFT", null],
+  //                                                                    12 × $560
+  ["Level 1 Associate cohort, May 2026", 12, 672000, 403200, "PAID", "TRF-88213", 2026],
+  ["Level 2 Master cohort, April 2026", 9, 504000, 252000, "PAID", "SEB-55190", 2026],
+  ["CCIO Level 3 cohort, March 2026", 7, 392000, 235200, "PAYMENT_REPORTED", "ENBD-77410", 2026],
+  ["Catalyst cohort, June 2026", 5, 100000, 60000, "SENT", null, 2026],
+  ["Design Thinking Level 1, July 2026", 4, 164000, 82000, "SENT", null, 2026],
+  ["Level 1 Associate cohort, July 2026", 6, 0, 0, "DRAFT", null, 2026],
+  ["Level 1 Associate cohort, October 2025", 18, 1008000, 604800, "PAID", "TRF-70118", 2025],
+  ["Foresight Level 1, November 2025", 6, 336000, 201600, "PAID", "SEB-41902", 2025],
+  ["GIMI Impact Students, September 2025", 22, 220000, 110000, "PAID", "ENBD-38771", 2025],
 ];
-invoiceSeed.forEach(([description, count, rev, gimi, status, ref], n) => {
+invoiceSeed.forEach(([description, count, rev, gimi, status, ref, year], n) => {
   DB.invoices.push({
     id: "inv" + (n + 1),
     partnerId: active[n % active.length].id,
     description, studentCount: count,
     partnerRevenue: rev, gimiAmount: gimi, status,
-    issuedAt: status === "DRAFT" ? null : "2026-06-20",
-    dueDate: "2026-08-3" + (n % 2),
-    pdf: status === "DRAFT" ? null : `GIMI-2026-0${20 + n}.pdf`,
+    issuedAt: status === "DRAFT" ? null : `${year}-0${(n % 9) + 1}-20`,
+    dueDate: `${year}-1${n % 2}-15`,
+    pdf: status === "DRAFT" ? null : `GIMI-${year}-0${20 + n}.pdf`,
     qbRef: status === "DRAFT" ? null : `QB-10${40 + n}`,
-    payment: ref ? { reference: ref, paidOn: "2026-07-10", method: "Bank transfer" } : null,
+    payment: ref ? { reference: ref, paidOn: `${year}-1${n % 2}-10`, method: "Bank transfer" } : null,
   });
 });
 
@@ -224,8 +236,10 @@ leadSeed.forEach(([company, contact, stage, prob, met, docs, rev, support], n) =
     partnerId: active[n % active.length].id,
     company, contact, website: "", stage,
     probability: prob, metStatus: met, docsSent: docs,
-    products: [pick(CERTIFICATIONS, n), pick(CERTIFICATIONS, n + 4)],
+    products: [pick(ENROLLABLE, n), pick(ENROLLABLE, n + 4)],
     expectedRevenue: rev,
+    // When the partner shared it, so the year filter reaches leads too.
+    submittedAt: `${n === 4 ? 2025 : 2026}-0${(n % 7) + 1}-1${n}`,
     expectedCloseDate: n % 2 ? "2026-11-20" : null,
     supportNeeded: support,
     reviewed: n > 2,

@@ -92,6 +92,24 @@ const rowIncomplete = (r) =>
 
 const submissionBlocked = (sub) => sub.roster.some(rowIncomplete);
 
+/* ------------------------------------------------------------ year filter
+   Years present in the data, newest first, so the control never offers a year
+   with nothing in it. */
+const YEARS = [
+  ...new Set([
+    ...DB.students.map((s) => s.examDate?.slice(0, 4)),
+    ...DB.invoices.map((i) => i.issuedAt?.slice(0, 4)),
+    ...DB.leads.map((l) => l.submittedAt?.slice(0, 4)),
+  ].filter(Boolean)),
+].sort().reverse();
+
+const inYear = (iso) => typeof iso === "string" && iso.startsWith(S.year);
+
+const studentsInYear = () => DB.students.filter((s) => inYear(s.examDate));
+const invoicesInYear = () =>
+  DB.invoices.filter((i) => i.status !== "DRAFT" && inYear(i.issuedAt));
+const leadsInYear = () => DB.leads.filter((l) => inYear(l.submittedAt));
+
 /* Derived figures. Computed, never stored. */
 const nonDraft = () => DB.invoices.filter((i) => i.status !== "DRAFT");
 const invoicedTotal = () => nonDraft().reduce((n, i) => n + i.gimiAmount, 0);
@@ -296,21 +314,29 @@ function adminOverview() {
         </div>`).join("")
     : `<div class="status-row clear"><span>Nothing needs your attention.</span></div>`;
 
+  // Year-scoped. Network counts are current state: there is no such thing as an
+  // active partner "in 2025", so those two cards stay outside the filter.
+  const students = studentsInYear();
+  const invoices = invoicesInYear();
+  const leads = leadsInYear();
+
   const countries = new Set(DB.partners.filter((p) => p.status === "ACTIVE").map((p) => p.country)).size;
-  const invoiced = invoicedTotal();
-  const received = receivedTotal();
+  const invoiced = invoices.reduce((n, i) => n + i.gimiAmount, 0);
+  const received = invoices.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
 
   const byCert = {};
-  DB.students.forEach((s) => { byCert[s.cert] = (byCert[s.cert] ?? 0) + 1; });
-  // Biggest first, and only certifications anyone is actually enrolled on. With 29 in
-  // the catalogue, listing the empty ones is 20 rows of zeroes.
+  students.forEach((s) => { byCert[s.cert] = (byCert[s.cert] ?? 0) + 1; });
   const certRows = Object.entries(byCert).sort((a, b) => b[1] - a[1]);
-  const totalStudents = DB.students.length;
 
   return `
-  <div class="page-head">
+  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
     <h1>Overview</h1>
-    <p class="count">Every figure below is for ${esc(S.year)}.</p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <span style="color:var(--muted)">Year</span>
+      <select data-action="set-year" style="width:auto;padding:5px 8px">
+        ${YEARS.map((y) => `<option value="${y}" ${S.year === y ? "selected" : ""}>${y}</option>`).join("")}
+      </select>
+    </label>
   </div>
 
   <section class="block">
@@ -322,70 +348,63 @@ function adminOverview() {
     <div class="kpi-group">
       <h3>Network</h3>
       <div class="kpi-row">
-        ${kpi("network", "Active partners", DB.partners.filter((p) => p.status === "ACTIVE").length)}
-        ${kpi("network", "Countries", countries)}
-        ${kpi("network", "Leads submitted", DB.leads.length)}
-        ${kpi("network", "Lead pipeline", money(DB.leads.reduce((n, l) => n + l.expectedRevenue, 0)))}
+        ${kpi("network", "Active partners", DB.partners.filter((p) => p.status === "ACTIVE").length, "Partners who can sign in today. Not affected by the year filter.")}
+        ${kpi("network", "Countries", countries, "Countries represented by active partners.")}
+        ${kpi("network", "Leads submitted", leads.length, `Leads shared by partners in ${S.year}.`)}
+        ${kpi("network", "Lead pipeline", money(leads.reduce((n, l) => n + l.expectedRevenue, 0)), "Total expected value of those leads, as estimated by the partner.")}
       </div>
     </div>
     <div class="kpi-group">
       <h3>Delivery</h3>
       <div class="kpi-row">
-        ${kpi("delivery", "Students enrolled", DB.students.length)}
-        ${kpi("delivery", "People certified", DB.students.filter((s) => s.status === "PASSED").length)}
-        ${kpi("delivery", "Pass rate", passRate(DB.students))}
-        ${kpi("delivery", "Awaiting enrollment", DB.submissions.filter((s) => s.status === "PENDING").reduce((n, s) => n + s.roster.length, 0))}
+        ${kpi("delivery", "Students enrolled", students.length, `Students with an exam date in ${S.year}.`)}
+        ${kpi("delivery", "People certified", students.filter((s) => s.status === "PASSED").length, "Students who passed.")}
+        ${kpi("delivery", "Pass rate", passRate(students), "Passed divided by passed plus failed. Students still in progress are excluded.")}
+        ${kpi("delivery", "Awaiting enrollment", DB.submissions.filter((s) => s.status === "PENDING").reduce((n, s) => n + s.roster.length, 0), "People sitting in submissions GIMI has not processed yet. A queue, so not year-filtered.")}
       </div>
     </div>
     <div class="kpi-group">
       <h3>Finances</h3>
       <div class="kpi-row">
-        ${kpi("finance", "Partner revenue", money(partnerRevenueTotal()))}
-        ${kpi("finance", "GIMI invoiced", money(invoiced))}
-        ${kpi("finance", "GIMI received", money(received))}
-        ${kpi("finance", "Outstanding", money(invoiced - received))}
+        ${kpi("finance", "Partner revenue", money(invoices.reduce((n, i) => n + i.partnerRevenue, 0)), "What partners billed their own clients: the full certificate value for everyone they trained. Entered by hand on each invoice.")}
+        ${kpi("finance", "GIMI invoiced", money(invoiced), "GIMI's part of that, billed to the partner. Entered by hand, never calculated from partner revenue. Drafts excluded.")}
+        ${kpi("finance", "GIMI received", money(received), "Invoices confirmed paid.")}
+        ${kpi("finance", "Outstanding", money(invoiced - received), "Invoiced minus received.")}
       </div>
-      <p class="count" style="margin-top:8px">
-        <strong>Partner revenue</strong> is what partners billed their own clients: the full
-        certificate value for everyone they trained.
-        <strong>GIMI invoiced</strong> is GIMI's part of that, billed to the partner.
-        Both are entered by hand on each invoice. Neither is calculated from the other,
-        because the share is negotiated per partner and per product.
-        Invoiced excludes drafts, and outstanding is invoiced minus received.
-      </p>
     </div>
   </section>
 
-  ${gimiRevenueByPartner()}
+  ${gimiRevenueByPartner(invoices)}
 
   <section class="block">
     <h2>Certifications by type</h2>
-    <p class="count" style="margin-bottom:10px">
-      Showing the ${certRows.length} certifications with students enrolled, of
-      ${DB.catalogue.length} in the catalogue. Percentages are of all ${totalStudents} students.
-    </p>
     <div class="table-scroll"><table>
       <thead><tr>
-        <th>Certification</th><th class="num">Students</th>
-        <th class="num">% of all students</th><th style="width:30%"></th>
+        <th>Certification</th><th class="num">Students</th><th class="num">Share</th>
       </tr></thead>
-      <tbody>${certRows.map(([cert, n]) => {
-        const pct = totalStudents ? Math.round((n / totalStudents) * 100) : 0;
-        return `
+      <tbody>${certRows.length === 0
+        ? `<tr><td colspan="3"><div class="empty" style="border:0;padding:18px">No students with an exam date in ${esc(S.year)}.</div></td></tr>`
+        : certRows.map(([cert, n]) => `
         <tr>
           <td>${esc(cert)}</td>
           <td class="num">${n}</td>
-          <td class="num">${pct}%</td>
-          <td><div class="bar"><i style="width:${pct}%"></i></div></td>
-        </tr>`;
-      }).join("")}
+          <td class="num">${Math.round((n / students.length) * 100)}%</td>
+        </tr>`).join("")}
       </tbody>
     </table></div>
   </section>`;
 }
 
-const kpi = (cls, label, value) =>
-  `<dl class="kpi ${cls}"><dt>${esc(label)}</dt><dd>${esc(String(value))}</dd></dl>`;
+/**
+ * A KPI card. The definition goes in a tooltip on the label, not as prose on the
+ * page: this is a screen a client may see, and paragraphs under numbers read as
+ * filler. Hovering the label explains the figure.
+ */
+const kpi = (cls, label, value, explain = "") =>
+  `<dl class="kpi ${cls}">
+     <dt${explain ? ` title="${esc(explain)}" style="cursor:help;border-bottom:1px dotted #c9ced4;display:inline-block"` : ""}>${esc(label)}</dt>
+     <dd>${esc(String(value))}</dd>
+   </dl>`;
 
 /**
  * What GIMI earns, partner by partner. Drafts are excluded, so this only counts
@@ -395,10 +414,10 @@ const kpi = (cls, label, value) =>
  * here is derived from a rate, because the rate is not the same for every partner:
  * see the note in the Overview about why.
  */
-function gimiRevenueByPartner() {
+function gimiRevenueByPartner(invoices) {
   const rows = DB.partners
     .map((p) => {
-      const issued = DB.invoices.filter((i) => i.partnerId === p.id && i.status !== "DRAFT");
+      const issued = invoices.filter((i) => i.partnerId === p.id);
       return {
         p,
         certificates: issued.reduce((n, i) => n + i.studentCount, 0),
@@ -409,29 +428,19 @@ function gimiRevenueByPartner() {
     .filter((r) => r.invoiced > 0)
     .sort((a, b) => b.invoiced - a.invoiced);
 
-  const top = Math.max(1, ...rows.map((r) => r.invoiced));
   const totalInvoiced = rows.reduce((n, r) => n + r.invoiced, 0);
-
-  if (rows.length === 0) {
-    return `
-    <section class="block">
-      <h2>GIMI revenue by partner</h2>
-      <div class="empty">No invoices have been issued yet.</div>
-    </section>`;
-  }
+  const totalReceived = rows.reduce((n, r) => n + r.received, 0);
+  const bold = "border-top:1px solid var(--line);font-weight:600";
 
   return `
   <section class="block">
     <h2>GIMI revenue by partner</h2>
-    <p class="count" style="margin-bottom:10px">
-      Showing ${rows.length} of ${DB.partners.length} partners, those with at least one
-      issued invoice. Drafts are excluded.
-    </p>
-    <div class="table-scroll"><table>
+    ${rows.length === 0
+      ? `<div class="empty">No invoices were issued in ${esc(S.year)}.</div>`
+      : `<div class="table-scroll"><table>
       <thead><tr>
         <th>Partner</th><th>Country</th><th class="num">Certificates</th>
-        <th class="num">GIMI invoiced</th><th class="num">Received</th>
-        <th class="num">Outstanding</th><th style="width:22%"></th>
+        <th class="num">GIMI invoiced</th><th class="num">Received</th><th class="num">Outstanding</th>
       </tr></thead>
       <tbody>${rows.map((r) => `
         <tr>
@@ -441,20 +450,16 @@ function gimiRevenueByPartner() {
           <td class="num">${money(r.invoiced)}</td>
           <td class="num">${money(r.received)}</td>
           <td class="num">${money(r.invoiced - r.received)}</td>
-          <td><div class="bar"><i style="width:${(r.invoiced / top) * 100}%"></i></div></td>
         </tr>`).join("")}
       </tbody>
       <tfoot><tr>
-        <td colspan="3" style="border-top:1px solid var(--line);font-weight:600">Total</td>
-        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(totalInvoiced)}</td>
-        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(rows.reduce((n, r) => n + r.received, 0))}</td>
-        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(totalInvoiced - rows.reduce((n, r) => n + r.received, 0))}</td>
-        <td style="border-top:1px solid var(--line)"></td>
+        <td colspan="2" style="${bold}">Total</td>
+        <td class="num" style="${bold}">${rows.reduce((n, r) => n + r.certificates, 0)}</td>
+        <td class="num" style="${bold}">${money(totalInvoiced)}</td>
+        <td class="num" style="${bold}">${money(totalReceived)}</td>
+        <td class="num" style="${bold}">${money(totalInvoiced - totalReceived)}</td>
       </tr></tfoot>
-    </table></div>
-    <p class="count" style="margin-top:8px">
-      Bars compare partners to the largest, not to a target.
-    </p>
+    </table></div>`}
   </section>`;
 }
 
@@ -1581,6 +1586,7 @@ const ACTIONS = {
 
   /* ------------------------------------------------------------- navigation */
   "admin-tab"(el) { S.adminTab = el.dataset.tab; S.notice = null; },
+  "set-year"(el) { S.year = el.value; },
   "partner-tab"(el) { S.partnerTab = el.dataset.tab; S.notice = null; },
   "toggle-open"(el) { S.open[el.dataset.id] = !S.open[el.dataset.id]; },
   "close-modal"() { S.modal = null; },
@@ -1942,8 +1948,8 @@ document.addEventListener("click", (event) => {
 document.addEventListener("change", (event) => {
   const target = event.target;
 
-  if (target.dataset.action === "set-result") {
-    S.notice = null; ACTIONS["set-result"](target); render(); return;
+  if (target.dataset.action === "set-result" || target.dataset.action === "set-year") {
+    S.notice = null; ACTIONS[target.dataset.action](target); render(); return;
   }
 
   // Staging table edits: keep the row object in step with what was typed, so the
