@@ -23,6 +23,14 @@ const S = {
   onboardingPartnerId: null,
   staging: [],             // rows on the partner Enroll screen
   pollDraft: null,
+
+  // Partners tab filters.
+  partnerSearch: "",
+  partnerStatus: "ALL",
+  partnerRegion: "ALL",
+
+  // Element to refocus after a re-render, so typing in a search box survives it.
+  focus: null,
 };
 
 /* ----------------------------------------------------------------- helpers */
@@ -153,6 +161,20 @@ function render() {
   else if (S.screen === "partner") root.innerHTML = partnerShell();
   $("#proto-role").textContent =
     S.identity ? `${S.identity.name} · ${S.identity.kind === "ADMIN" ? "GIMI staff" : partnerName(S.identity.partnerId)}` : "not signed in";
+
+  // Rebuilding the screen destroys the focused element, so a search box would lose
+  // focus after every keystroke. Put it back, caret at the end.
+  if (S.focus) {
+    const field = $("#" + S.focus);
+    S.focus = null;
+    if (field) {
+      field.focus();
+      const end = field.value.length;
+      field.setSelectionRange(end, end);
+      return; // Keep the caret where it is rather than jumping to the top.
+    }
+  }
+
   window.scrollTo(0, 0); // Lesson 15: reset scroll on view change.
 }
 
@@ -499,15 +521,59 @@ function gimiRevenueByPartner(invoices) {
 
 /* -------------------------------------------------------- admin: partners */
 
+/** Search across the fields someone would actually type: name, country, region, email. */
+function partnerMatches(p, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    p.name.toLowerCase().includes(q) ||
+    p.country.toLowerCase().includes(q) ||
+    p.region.toLowerCase().includes(q) ||
+    p.partnerType.toLowerCase().includes(q) ||
+    p.users.some((u) => u.email.toLowerCase().includes(q))
+  );
+}
+
+function filteredPartners() {
+  return DB.partners.filter(
+    (p) =>
+      partnerMatches(p, S.partnerSearch) &&
+      (S.partnerStatus === "ALL" || p.status === S.partnerStatus) &&
+      (S.partnerRegion === "ALL" || p.region === S.partnerRegion),
+  );
+}
+
 function adminPartners() {
-  const awaiting = DB.partners.filter((p) => p.status === "PENDING");
-  const rest = DB.partners.filter((p) => p.status !== "PENDING");
+  const shown = filteredPartners();
+  const awaiting = shown.filter((p) => p.status === "PENDING");
+  const rest = shown.filter((p) => p.status !== "PENDING");
   const cols = DB.customColumns;
+  const regions = [...new Set(DB.partners.map((p) => p.region))].sort();
+  const filtering =
+    S.partnerSearch || S.partnerStatus !== "ALL" || S.partnerRegion !== "ALL";
 
   return `
-  <div class="page-head">
-    <h1>Partners</h1>
-    <p class="count">Showing ${DB.partners.length} of ${DB.partners.length}.</p>
+  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+    <div>
+      <h1>Partners</h1>
+      <p class="count">Showing ${shown.length} of ${DB.partners.length}.</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <input type="text" id="partner-search" data-action="partner-search" placeholder="Search partners"
+        value="${esc(S.partnerSearch)}" style="width:200px;padding:6px 9px">
+      <select data-action="partner-status" style="width:auto;padding:6px 8px">
+        <option value="ALL" ${S.partnerStatus === "ALL" ? "selected" : ""}>All statuses</option>
+        <option value="ACTIVE" ${S.partnerStatus === "ACTIVE" ? "selected" : ""}>Active</option>
+        <option value="PENDING" ${S.partnerStatus === "PENDING" ? "selected" : ""}>Awaiting approval</option>
+        <option value="SUSPENDED" ${S.partnerStatus === "SUSPENDED" ? "selected" : ""}>Suspended</option>
+      </select>
+      <select data-action="partner-region" style="width:auto;padding:6px 8px">
+        <option value="ALL" ${S.partnerRegion === "ALL" ? "selected" : ""}>All regions</option>
+        ${regions.map((r) => `<option value="${esc(r)}" ${S.partnerRegion === r ? "selected" : ""}>${esc(r)}</option>`).join("")}
+      </select>
+      ${filtering ? `<button class="btn btn-ghost btn-sm" data-action="clear-partner-filters">Clear</button>` : ""}
+      <button class="btn btn-ghost btn-sm" data-action="csv-partners" ${shown.length === 0 ? "disabled" : ""}>Download CSV</button>
+    </div>
   </div>
 
   <div class="adder">
@@ -540,8 +606,12 @@ function adminPartners() {
     </section>` : ""}
 
   <section class="block">
-    <h2>All partners</h2>
-    ${rest.length ? partnerTable(rest, cols) : `<div class="empty">Nothing here yet.</div>`}
+    <h2>${S.partnerStatus === "ALL" ? "All partners" : "Partners"} (${rest.length})</h2>
+    ${rest.length
+      ? partnerTable(rest, cols)
+      : `<div class="empty">${filtering
+          ? "No partners match these filters."
+          : "No partners yet."}</div>`}
   </section>`;
 }
 
@@ -1674,6 +1744,34 @@ const ACTIONS = {
     notice("ok", `Exported ${rows.length} partners for ${S.year}.`);
   },
 
+  "partner-search"(el) { S.partnerSearch = el.value; S.focus = "partner-search"; },
+  "partner-status"(el) { S.partnerStatus = el.value; },
+  "partner-region"(el) { S.partnerRegion = el.value; },
+  "clear-partner-filters"() {
+    S.partnerSearch = ""; S.partnerStatus = "ALL"; S.partnerRegion = "ALL";
+  },
+
+  "csv-partners"() {
+    const rows = filteredPartners();
+    if (rows.length === 0) return notice("bad", "Nothing to export with these filters.");
+    const cols = DB.customColumns;
+    downloadCsv(
+      "gimi-partners.csv",
+      ["Partner", "Status", "Country", "Region", "Type", "Logins", "Joined", ...cols.map((c) => c.name)],
+      rows.map((p) => [
+        p.name,
+        PARTNER_STATUS[p.status][0],
+        p.country,
+        p.region,
+        p.partnerType,
+        p.users.map((u) => u.email).join("; "),
+        p.createdAt,
+        ...cols.map((c) => p.notes[c.id] || ""),
+      ]),
+    );
+    notice("ok", `Exported ${rows.length} partners.`);
+  },
+
   "csv-certifications"() {
     const students = studentsInYear();
     if (students.length === 0) return notice("bad", `Nothing to export for ${S.year}.`);
@@ -2048,7 +2146,8 @@ document.addEventListener("click", (event) => {
 document.addEventListener("change", (event) => {
   const target = event.target;
 
-  if (target.dataset.action === "set-result" || target.dataset.action === "set-year") {
+  // Selects and result dropdowns act on change.
+  if (["set-result", "set-year", "partner-status", "partner-region"].includes(target.dataset.action)) {
     S.notice = null; ACTIONS[target.dataset.action](target); render(); return;
   }
 
@@ -2063,6 +2162,15 @@ document.addEventListener("change", (event) => {
   if (target.dataset.note) {
     const [pid, cid] = target.dataset.note.split(":");
     partner(pid).notes[cid] = target.value;
+  }
+});
+
+/* Search boxes filter as you type, so they listen for input rather than change. */
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target.dataset.action === "partner-search") {
+    ACTIONS["partner-search"](target);
+    render();
   }
 });
 

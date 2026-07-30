@@ -20,60 +20,103 @@ const EXAM_FORMATS = [
   { value: "SEB_SOFTWARE", label: "Safe Exam Browser" },
 ];
 
-/* GIMI's own words for how engaged a partner is. This is a real dimension in
-   their spreadsheet that the portal schema does not have, so it is carried as
-   an admin-only custom column rather than being forced into `status`. */
-const ACTIVITY_TO_STATUS = {
-  "Active": "ACTIVE",
-  "Semi active": "ACTIVE",
-  "Passive": "ACTIVE",
-  "New partner": "PENDING",
-};
-
 const slug = (name) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/* Every real partner is ACTIVE. "New partner" in GIMI's sheet is how engaged they
+   are, not whether they have finished portal onboarding, so it must not become a
+   portal status. Two invented partners below carry the awaiting-approval states, so
+   no real company is shown as unapproved and the flow still demonstrates.
+
+   Nothing about the demo's shape may depend on `activity`, because that field is
+   stripped from the published build. It used to drive status and directory
+   visibility, which silently emptied the approval queue and the partner directory
+   on the live site. */
+const DEMO_PENDING = [
+  {
+    name: "Andes Example Institute", country: "Chile", region: "South America",
+    type: "Training Partner", contactName: "Camila Rojas",
+    contacts: ["portal@example-institute.cl"],
+    // Accepted their invitation, so an admin can approve them.
+    accepted: true, inviteEmail: null,
+  },
+  {
+    name: "Baltic Example Forum", country: "Estonia", region: "Europe",
+    type: "Training Partner", contactName: "", contacts: [],
+    // Invited and never completed it, so Approve must not appear at all.
+    accepted: false, inviteEmail: "director@example-forum.ee",
+  },
+];
 
 /* ------------------------------------------------------------------ build */
 
 const DB = {
   settings: { leaderboardEnabled: false },
 
-  /* Two admin-only columns, one of which carries GIMI's activity assessment.
-     Neither is ever included in anything a partner can read. */
+  /* Admin-only columns. The activity assessment only appears when the data holds
+     it, so the published build shows one column rather than 24 empty dashes. */
   customColumns: [
-    { id: 1, name: "Activity", position: 1 },
+    ...(REAL_PARTNERS.some((r) => r.activity) ? [{ id: 1, name: "Activity", position: 1 }] : []),
     { id: 2, name: "Internal note", position: 2 },
   ],
 
-  partners: REAL_PARTNERS.map((r, index) => ({
-    // Derived from position, not from a field in the generated file. It was built
-    // from a row number once, the generator stopped emitting it, and every partner
-    // silently became "pundefined" — which made every partner-scoped filter return
-    // the whole network.
-    id: "p" + (index + 1),
-    name: r.name,
-    country: r.country || "—",
-    region: r.region || "—",
-    partnerType: r.type || "—",
-    status: ACTIVITY_TO_STATUS[r.activity] ?? "ACTIVE",
-    website: r.contacts[0] ? r.contacts[0].split("@")[1] : "",
-    linkedin: "",
-    phone: "",
-    // Not supplied in the workbook. Left null rather than invented, so nobody
-    // mistakes a made-up target for a real one.
-    expectedRevenue: null,
-    visibleInDirectory: r.activity === "Active",
-    createdAt: "2025-01-15",
-    approvedAt: r.activity === "New partner" ? null : "2025-01-20",
-    users: r.contacts.map((email, n) => ({
-      name: n === 0 ? r.contactName || email.split("@")[0] : email.split("@")[0],
-      email,
-      lastLogin: r.activity === "Active" ? "2026-07-27" : r.activity === "Semi active" ? "2026-06-12" : null,
+  partners: [
+    ...REAL_PARTNERS.map((r, index) => ({
+      // Derived from position, not from a field in the generated file. It was built
+      // from a row number once, the generator stopped emitting it, and every partner
+      // silently became "pundefined" — which made every partner-scoped filter return
+      // the whole network.
+      id: "p" + (index + 1),
+      name: r.name,
+      country: r.country || "—",
+      region: r.region || "—",
+      partnerType: r.type || "—",
+      status: "ACTIVE",
+      website: r.contacts[0] ? r.contacts[0].split("@")[1] : "",
+      linkedin: "",
+      phone: "",
+      // Not supplied in the workbook. Left null rather than invented, so nobody
+      // mistakes a made-up target for a real one.
+      expectedRevenue: null,
+      // A partner's own choice, so spread rather than tied to anything real.
+      visibleInDirectory: index % 3 !== 2,
+      createdAt: `202${4 + (index % 2)}-0${(index % 9) + 1}-1${index % 9}`,
+      approvedAt: `202${4 + (index % 2)}-0${(index % 9) + 1}-2${index % 8}`,
+      users: r.contacts.map((email, n) => ({
+        name: n === 0 ? r.contactName || email.split("@")[0] : email.split("@")[0],
+        email,
+        lastLogin: index % 4 === 3 ? null : `2026-0${(index % 7) + 1}-1${index % 9}`,
+      })),
+      notes: { 1: r.activity, 2: "" },
     })),
-    notes: { 1: r.activity, 2: "" },
-  })),
+    ...DEMO_PENDING.map((d, n) => ({
+      id: "demo" + (n + 1),
+      name: d.name,
+      country: d.country,
+      region: d.region,
+      partnerType: d.type,
+      status: "PENDING",
+      website: "", linkedin: "", phone: "",
+      expectedRevenue: null,
+      visibleInDirectory: false,
+      createdAt: "2026-07-2" + (5 + n),
+      approvedAt: null,
+      users: d.accepted
+        ? d.contacts.map((email) => ({ name: d.contactName, email, lastLogin: null }))
+        : [],
+      notes: { 1: "", 2: "" },
+    })),
+  ],
 
-  invites: [],
+  invites: DEMO_PENDING
+    .filter((d) => d.inviteEmail)
+    .map((d, n) => ({
+      id: "i" + (n + 1),
+      partnerId: "demo" + (DEMO_PENDING.indexOf(d) + 1),
+      email: d.inviteEmail,
+      sentAt: "2026-07-26",
+      expiresAt: "2026-08-02",
+    })),
   students: [],
   submissions: [],
   invoices: [],
