@@ -79,30 +79,8 @@ const LEAD_STAGE = { NEW: "New", QUALIFIED: "Qualified", IN_DISCUSSION: "In disc
 const MET_STATUS = { NOT_YET: "Not yet met", INTRO_CALL: "Intro call", MET_IN_PERSON: "Met in person" };
 const DOCS_SENT = { NOTHING: "Nothing", OVERVIEW: "Overview", PROPOSAL: "Proposal", PRICING: "Pricing" };
 
-/**
- * Joins the certification taxonomy to the wording GIMI uses for courses in the
- * LMS spreadsheet. An explicit map rather than fuzzy matching, because
- * "Design Thinking" means Level 1 there and nothing about the string says so.
- * A certification with no entry shows "Ask GIMI" rather than a wrong link.
- */
-const PROGRAMME_MAP = {
-  "Innovation Potential Assessment (IPA)": "IPA",
-  "Level 1 Associate": "LEVEL 1 ASSOCIATE",
-  "Level 2 Master": "LEVEL 2 MASTER",
-  "Level 3 Manager": "LEVEL 3 MANAGER",
-  "Future Foresight Level 1": "FF Level 1",
-  "Future Foresight Level 2": "FF Level 2",
-  "Future Foresight Level 3": "FF Level 3",
-  "Design Thinking Level 1": "Design Thinking",
-  "Design Thinking Level 2": "Design Thinking L2",
-  "Leader of the Future": "Leader of the future",
-  "Innovation Primer": "Primer",
-  Longevity: "Longevity",
-  Technovate: "Technovate",
-};
-
-const matchesProgramme = (programme, cert) =>
-  (PROGRAMME_MAP[cert] ?? "").toLowerCase() === String(programme).trim().toLowerCase();
+/** A certification's catalogue entry, by name. */
+const catalogueEntry = (name) => DB.catalogue.find((c) => c.name === name);
 
 const badge = (label, cls) => `<span class="badge ${cls}">${esc(label)}</span>`;
 const partnerBadge = (st) => badge(...PARTNER_STATUS[st]);
@@ -1274,6 +1252,83 @@ function partnerLeads() {
     </table></div>`}`;
 }
 
+/**
+ * The product catalogue, grouped as GIMI groups it, with each certification
+ * expanding to the description, what is included, the skills, the career
+ * outcomes and the published price.
+ *
+ * Every word here comes from GIMI_Product_Catalogue_V68.pptx. Nothing is
+ * paraphrased, so a partner reads exactly what the catalogue says.
+ */
+function catalogueSection() {
+  const groups = [...new Set(DB.catalogue.map((c) => c.group))];
+
+  return `
+  <section class="block">
+    <h2>Certifications you can deliver (${DB.catalogue.length})</h2>
+    <p class="count" style="margin-bottom:12px">
+      From the GIMI product catalogue. Click a certification for the full description.
+      Enrolment happens in the Students tab, not here.
+    </p>
+    ${groups.map((group) => {
+      const rows = DB.catalogue.filter((c) => c.group === group);
+      return `
+      <h3 style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px">
+        ${esc(group)} (${rows.length})
+      </h3>
+      <div class="table-scroll"><table>
+        <thead><tr>
+          <th>Certification</th><th>Code</th><th>For</th><th>Time</th>
+          <th class="num">Certificate</th><th class="num">With training</th>
+        </tr></thead>
+        <tbody>${rows.map((c) => `
+          <tr>
+            <td><button class="btn-link" data-action="toggle-open" data-id="cat-${c.code}">${esc(c.name)}</button>
+              ${c.tagline ? `<span class="sub">${esc(c.tagline)}</span>` : ""}</td>
+            <td class="nowrap">${esc(c.code)}</td>
+            <td>${esc(c.audience || "—")}</td>
+            <td class="nowrap">${esc(c.time || "—")}</td>
+            <td class="num nowrap">${esc(c.certPrice || "—")}</td>
+            <td class="num nowrap">${esc(c.trainingPrice || "—")}</td>
+          </tr>
+          ${S.open["cat-" + c.code] ? catalogueDetail(c) : ""}`).join("")}
+        </tbody>
+      </table></div>`;
+    }).join("")}
+  </section>`;
+}
+
+function catalogueDetail(c) {
+  const list = (label, items) =>
+    items && items.length
+      ? `<div>
+           <h4 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">${label}</h4>
+           <ul style="margin:0;padding-left:18px;font-size:13px">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+         </div>`
+      : "";
+
+  return `
+  <tr class="detail-row"><td colspan="6">
+    <p style="font-size:13.5px;max-width:78ch;margin-bottom:16px">${esc(c.description)}</p>
+    <div class="two-col" style="margin-bottom:14px">
+      ${list("What's included", c.included)}
+      ${list("Skills you'll master", c.skills)}
+    </div>
+    <div class="two-col">
+      ${list("Career outcomes", c.outcomes)}
+      <div>
+        <h4 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Examination</h4>
+        <table style="font-size:13px"><tbody>
+          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Format</td><td style="border:0;padding:2px 0">${esc(c.examFormat || "—")}</td></tr>
+          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Prerequisite</td><td style="border:0;padding:2px 0">${esc(c.prerequisite || "None")}</td></tr>
+          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Certificate</td><td style="border:0;padding:2px 0">${esc(c.certPrice || "—")}${c.certMode ? " · " + esc(c.certMode) : ""}</td></tr>
+          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">With training</td><td style="border:0;padding:2px 0">${esc(c.trainingPrice || "—")}${c.trainingMode ? " · " + esc(c.trainingMode) : ""}</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+  </td></tr>`;
+}
+
 function partnerLibrary() {
   return `
   <div class="page-head">
@@ -1281,30 +1336,7 @@ function partnerLibrary() {
     <p class="count">The same for every partner.</p>
   </div>
 
-  <section class="block">
-    <h2>Certifications you can deliver (${CERTIFICATIONS.length})</h2>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Certification</th><th>Course on the LMS</th><th>Exam</th></tr></thead>
-      <tbody>${CERTIFICATIONS.map((cert) => {
-        const course = DB.courses.find((c) => matchesProgramme(c.programme, cert));
-        const exam = DB.exams.find((c) => matchesProgramme(c.programme, cert));
-        return `
-        <tr>
-          <td>${esc(cert)}</td>
-          <td>${course
-            ? `<a href="${esc(course.link)}" target="_blank" rel="noopener">${esc(course.title)}</a>${course.moodleId ? `<span class="sub">Course ${esc(course.moodleId)}</span>` : ""}`
-            : `<span style="color:var(--faint)">Ask GIMI</span>`}</td>
-          <td>${exam
-            ? `<a href="${esc(exam.link)}" target="_blank" rel="noopener">${esc(exam.title)}</a>`
-            : `<span style="color:var(--faint)">—</span>`}</td>
-        </tr>`;
-      }).join("")}
-      </tbody>
-    </table></div>
-    <p class="count" style="margin-top:8px">
-      Links open the GIMI LMS. Enrolment happens through the Students tab, not here.
-    </p>
-  </section>
+  ${catalogueSection()}
 
   <section class="block">
     <h2>Documents (${DB.library.length})</h2>

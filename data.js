@@ -75,25 +75,11 @@ const DB = {
   winners: [],
   polls: [],
 
-  /* The real GIMI course catalogue, so partners can see what is offered.
-     Links point at the live Moodle. */
-  courses: COURSE_CATALOGUE.map((c) => ({
-    id: "c" + (c.number || slug(c.label)),
-    programme: c.label,
-    title: c.title,
-    moodleId: c.number,
-    link: c.link,
-    kind: "Course",
-  })),
-
-  exams: EXAM_CATALOGUE.map((c) => ({
-    id: "e" + (c.number || slug(c.label)),
-    programme: c.label,
-    title: c.title,
-    moodleId: c.number,
-    link: c.link,
-    kind: "Exam",
-  })),
+  /* The real product catalogue, straight from GIMI_Product_Catalogue_V68.pptx:
+     29 certifications with descriptions, what is included, skills, career
+     outcomes, exam format and published prices. Partners browse this in the
+     Library to see what they can sell and deliver. */
+  catalogue: CATALOGUE,
 
   library: [
     { id: "d1", name: "GIMI certification overview", kind: "Deck", updated: "2026-06-02" },
