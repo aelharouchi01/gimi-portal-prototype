@@ -351,6 +351,8 @@ function adminOverview() {
     </div>
   </section>
 
+  ${gimiRevenueByPartner()}
+
   <section class="block">
     <h2>Certifications by type</h2>
     <p class="count" style="margin-bottom:10px">
@@ -379,6 +381,77 @@ function adminOverview() {
 
 const kpi = (cls, label, value) =>
   `<dl class="kpi ${cls}"><dt>${esc(label)}</dt><dd>${esc(String(value))}</dd></dl>`;
+
+/**
+ * What GIMI earns, partner by partner. Drafts are excluded, so this only counts
+ * invoices that were actually issued.
+ *
+ * Every figure is a sum of the gimiAmount an admin typed on each invoice. Nothing
+ * here is derived from a rate, because the rate is not the same for every partner:
+ * see the note in the Overview about why.
+ */
+function gimiRevenueByPartner() {
+  const rows = DB.partners
+    .map((p) => {
+      const issued = DB.invoices.filter((i) => i.partnerId === p.id && i.status !== "DRAFT");
+      return {
+        p,
+        certificates: issued.reduce((n, i) => n + i.studentCount, 0),
+        invoiced: issued.reduce((n, i) => n + i.gimiAmount, 0),
+        received: issued.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0),
+      };
+    })
+    .filter((r) => r.invoiced > 0)
+    .sort((a, b) => b.invoiced - a.invoiced);
+
+  const top = Math.max(1, ...rows.map((r) => r.invoiced));
+  const totalInvoiced = rows.reduce((n, r) => n + r.invoiced, 0);
+
+  if (rows.length === 0) {
+    return `
+    <section class="block">
+      <h2>GIMI revenue by partner</h2>
+      <div class="empty">No invoices have been issued yet.</div>
+    </section>`;
+  }
+
+  return `
+  <section class="block">
+    <h2>GIMI revenue by partner</h2>
+    <p class="count" style="margin-bottom:10px">
+      Showing ${rows.length} of ${DB.partners.length} partners, those with at least one
+      issued invoice. Drafts are excluded.
+    </p>
+    <div class="table-scroll"><table>
+      <thead><tr>
+        <th>Partner</th><th>Country</th><th class="num">Certificates</th>
+        <th class="num">GIMI invoiced</th><th class="num">Received</th>
+        <th class="num">Outstanding</th><th style="width:22%"></th>
+      </tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr>
+          <td>${esc(r.p.name)}</td>
+          <td>${esc(r.p.country)}</td>
+          <td class="num">${r.certificates}</td>
+          <td class="num">${money(r.invoiced)}</td>
+          <td class="num">${money(r.received)}</td>
+          <td class="num">${money(r.invoiced - r.received)}</td>
+          <td><div class="bar"><i style="width:${(r.invoiced / top) * 100}%"></i></div></td>
+        </tr>`).join("")}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="3" style="border-top:1px solid var(--line);font-weight:600">Total</td>
+        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(totalInvoiced)}</td>
+        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(rows.reduce((n, r) => n + r.received, 0))}</td>
+        <td class="num" style="border-top:1px solid var(--line);font-weight:600">${money(totalInvoiced - rows.reduce((n, r) => n + r.received, 0))}</td>
+        <td style="border-top:1px solid var(--line)"></td>
+      </tr></tfoot>
+    </table></div>
+    <p class="count" style="margin-top:8px">
+      Bars compare partners to the largest, not to a target.
+    </p>
+  </section>`;
+}
 
 /* -------------------------------------------------------- admin: partners */
 
