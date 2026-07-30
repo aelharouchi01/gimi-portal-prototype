@@ -103,12 +103,22 @@ const YEARS = [
   ].filter(Boolean)),
 ].sort().reverse();
 
-const inYear = (iso) => typeof iso === "string" && iso.startsWith(S.year);
+const inYearOf = (iso, year) => typeof iso === "string" && iso.startsWith(year);
 
-const studentsInYear = () => DB.students.filter((s) => inYear(s.examDate));
-const invoicesInYear = () =>
-  DB.invoices.filter((i) => i.status !== "DRAFT" && inYear(i.issuedAt));
-const leadsInYear = () => DB.leads.filter((l) => inYear(l.submittedAt));
+const studentsIn = (year) => DB.students.filter((s) => inYearOf(s.examDate, year));
+const invoicesIn = (year) =>
+  DB.invoices.filter((i) => i.status !== "DRAFT" && inYearOf(i.issuedAt, year));
+const leadsIn = (year) => DB.leads.filter((l) => inYearOf(l.submittedAt, year));
+
+const studentsInYear = () => studentsIn(S.year);
+const invoicesInYear = () => invoicesIn(S.year);
+const leadsInYear = () => leadsIn(S.year);
+
+/** The year before the one selected, or null when there is no data for it. */
+const previousYear = () => {
+  const before = String(Number(S.year) - 1);
+  return YEARS.includes(before) ? before : null;
+};
 
 /* Derived figures. Computed, never stored. */
 const nonDraft = () => DB.invoices.filter((i) => i.status !== "DRAFT");
@@ -320,6 +330,14 @@ function adminOverview() {
   const invoices = invoicesInYear();
   const leads = leadsInYear();
 
+  // Last year's equivalents, for the comparison line under each figure.
+  const prev = previousYear();
+  const pStudents = prev ? studentsIn(prev) : [];
+  const pInvoices = prev ? invoicesIn(prev) : [];
+  const pLeads = prev ? leadsIn(prev) : [];
+  const pInvoiced = pInvoices.reduce((n, i) => n + i.gimiAmount, 0);
+  const pReceived = pInvoices.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
+
   const countries = new Set(DB.partners.filter((p) => p.status === "ACTIVE").map((p) => p.country)).size;
   const invoiced = invoices.reduce((n, i) => n + i.gimiAmount, 0);
   const received = invoices.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
@@ -350,26 +368,26 @@ function adminOverview() {
       <div class="kpi-row">
         ${kpi("network", "Active partners", DB.partners.filter((p) => p.status === "ACTIVE").length, "Partners who can sign in today. Not affected by the year filter.")}
         ${kpi("network", "Countries", countries, "Countries represented by active partners.")}
-        ${kpi("network", "Leads submitted", leads.length, `Leads shared by partners in ${S.year}.`)}
-        ${kpi("network", "Lead pipeline", money(leads.reduce((n, l) => n + l.expectedRevenue, 0)), "Total expected value of those leads, as estimated by the partner.")}
+        ${kpi("network", "Leads submitted", leads.length, `Leads shared by partners in ${S.year}.`, versus(prev, pLeads.length))}
+        ${kpi("network", "Lead pipeline", money(leads.reduce((n, l) => n + l.expectedRevenue, 0)), "Total expected value of those leads, as estimated by the partner.", versus(prev, money(pLeads.reduce((n, l) => n + l.expectedRevenue, 0))))}
       </div>
     </div>
     <div class="kpi-group">
       <h3>Delivery</h3>
       <div class="kpi-row">
-        ${kpi("delivery", "Students enrolled", students.length, `Students with an exam date in ${S.year}.`)}
-        ${kpi("delivery", "People certified", students.filter((s) => s.status === "PASSED").length, "Students who passed.")}
-        ${kpi("delivery", "Pass rate", passRate(students), "Passed divided by passed plus failed. Students still in progress are excluded.")}
+        ${kpi("delivery", "Students enrolled", students.length, `Students with an exam date in ${S.year}.`, versus(prev, pStudents.length))}
+        ${kpi("delivery", "People certified", students.filter((s) => s.status === "PASSED").length, "Students who passed.", versus(prev, pStudents.filter((s) => s.status === "PASSED").length))}
+        ${kpi("delivery", "Pass rate", passRate(students), "Passed divided by passed plus failed. Students still in progress are excluded.", versus(prev, passRate(pStudents)))}
         ${kpi("delivery", "Awaiting enrollment", DB.submissions.filter((s) => s.status === "PENDING").reduce((n, s) => n + s.roster.length, 0), "People sitting in submissions GIMI has not processed yet. A queue, so not year-filtered.")}
       </div>
     </div>
     <div class="kpi-group">
       <h3>Finances</h3>
       <div class="kpi-row">
-        ${kpi("finance", "Partner revenue", money(invoices.reduce((n, i) => n + i.partnerRevenue, 0)), "What partners billed their own clients: the full certificate value for everyone they trained. Entered by hand on each invoice.")}
-        ${kpi("finance", "GIMI invoiced", money(invoiced), "GIMI's part of that, billed to the partner. Entered by hand, never calculated from partner revenue. Drafts excluded.")}
-        ${kpi("finance", "GIMI received", money(received), "Invoices confirmed paid.")}
-        ${kpi("finance", "Outstanding", money(invoiced - received), "Invoiced minus received.")}
+        ${kpi("finance", "Partner revenue", money(invoices.reduce((n, i) => n + i.partnerRevenue, 0)), "What partners billed their own clients: the full certificate value for everyone they trained. Entered by hand on each invoice.", versus(prev, money(pInvoices.reduce((n, i) => n + i.partnerRevenue, 0))))}
+        ${kpi("finance", "GIMI invoiced", money(invoiced), "GIMI's part of that, billed to the partner. Entered by hand, never calculated from partner revenue. Drafts excluded.", versus(prev, money(pInvoiced)))}
+        ${kpi("finance", "GIMI received", money(received), "Invoices confirmed paid.", versus(prev, money(pReceived)))}
+        ${kpi("finance", "Outstanding", money(invoiced - received), "Invoiced minus received.", versus(prev, money(pInvoiced - pReceived)))}
       </div>
     </div>
   </section>
@@ -377,7 +395,10 @@ function adminOverview() {
   ${gimiRevenueByPartner(invoices)}
 
   <section class="block">
-    <h2>Certifications by type</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px">
+      <h2 style="margin:0">Certifications by type</h2>
+      <button class="btn btn-ghost btn-sm" data-action="csv-certifications" ${certRows.length === 0 ? "disabled" : ""}>Download CSV</button>
+    </div>
     <div class="table-scroll"><table>
       <thead><tr>
         <th>Certification</th><th class="num">Students</th><th class="num">Share</th>
@@ -400,11 +421,21 @@ function adminOverview() {
  * page: this is a screen a client may see, and paragraphs under numbers read as
  * filler. Hovering the label explains the figure.
  */
-const kpi = (cls, label, value, explain = "") =>
+const kpi = (cls, label, value, explain = "", compare = "") =>
   `<dl class="kpi ${cls}">
      <dt${explain ? ` title="${esc(explain)}" style="cursor:help;border-bottom:1px dotted #c9ced4;display:inline-block"` : ""}>${esc(label)}</dt>
      <dd>${esc(String(value))}</dd>
+     ${compare ? `<dd class="kpi-compare">${esc(compare)}</dd>` : ""}
    </dl>`;
+
+/**
+ * The same figure a year earlier, for the cards the year filter drives.
+ *
+ * Deliberately no arrows and no red or green. "Outstanding up 40%" is bad news and
+ * "certified up 40%" is good news, and a single colour scheme cannot tell them
+ * apart. Showing last year's number lets the reader judge.
+ */
+const versus = (year, value) => (year ? `${year}: ${value}` : "");
 
 /**
  * What GIMI earns, partner by partner. Drafts are excluded, so this only counts
@@ -434,7 +465,10 @@ function gimiRevenueByPartner(invoices) {
 
   return `
   <section class="block">
-    <h2>GIMI revenue by partner</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px">
+      <h2 style="margin:0">GIMI revenue by partner</h2>
+      <button class="btn btn-ghost btn-sm" data-action="csv-revenue" ${rows.length === 0 ? "disabled" : ""}>Download CSV</button>
+    </div>
     ${rows.length === 0
       ? `<div class="empty">No invoices were issued in ${esc(S.year)}.</div>`
       : `<div class="table-scroll"><table>
@@ -1564,6 +1598,43 @@ function modalHtml() {
 
 /* ============================================================== actions */
 
+/**
+ * Downloads a table as CSV, built in the browser. No server is involved.
+ *
+ * Every field is quoted and internal quotes doubled, so a company name containing
+ * a comma cannot shift the columns. That is the whole reason this is a function
+ * rather than rows.join(",").
+ */
+function downloadCsv(filename, headers, rows) {
+  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [headers, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
+
+  // A BOM, so Excel opens UTF-8 correctly instead of mangling accented names.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** The figures behind "GIMI revenue by partner", for the selected year. */
+function revenueByPartnerRows() {
+  const invoices = invoicesInYear();
+  return DB.partners
+    .map((p) => {
+      const issued = invoices.filter((i) => i.partnerId === p.id);
+      const invoiced = issued.reduce((n, i) => n + i.gimiAmount, 0);
+      const received = issued.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
+      return { p, certificates: issued.reduce((n, i) => n + i.studentCount, 0), invoiced, received };
+    })
+    .filter((r) => r.invoiced > 0)
+    .sort((a, b) => b.invoiced - a.invoiced);
+}
+
 const val = (id) => ($("#" + id)?.value ?? "").trim();
 const centsFrom = (text) => {
   const cleaned = text.replace(/[$,\s]/g, "");
@@ -1587,6 +1658,35 @@ const ACTIONS = {
   /* ------------------------------------------------------------- navigation */
   "admin-tab"(el) { S.adminTab = el.dataset.tab; S.notice = null; },
   "set-year"(el) { S.year = el.value; },
+
+  "csv-revenue"() {
+    const rows = revenueByPartnerRows();
+    if (rows.length === 0) return notice("bad", `Nothing to export for ${S.year}.`);
+    downloadCsv(
+      `gimi-revenue-by-partner-${S.year}.csv`,
+      ["Partner", "Country", "Region", "Certificates", "GIMI invoiced", "Received", "Outstanding"],
+      rows.map((r) => [
+        r.p.name, r.p.country, r.p.region, r.certificates,
+        (r.invoiced / 100).toFixed(2), (r.received / 100).toFixed(2),
+        ((r.invoiced - r.received) / 100).toFixed(2),
+      ]),
+    );
+    notice("ok", `Exported ${rows.length} partners for ${S.year}.`);
+  },
+
+  "csv-certifications"() {
+    const students = studentsInYear();
+    if (students.length === 0) return notice("bad", `Nothing to export for ${S.year}.`);
+    const byCert = {};
+    students.forEach((s) => { byCert[s.cert] = (byCert[s.cert] ?? 0) + 1; });
+    const rows = Object.entries(byCert).sort((a, b) => b[1] - a[1]);
+    downloadCsv(
+      `gimi-certifications-${S.year}.csv`,
+      ["Certification", "Students", "Share of all students"],
+      rows.map(([cert, n]) => [cert, n, Math.round((n / students.length) * 100) + "%"]),
+    );
+    notice("ok", `Exported ${rows.length} certifications for ${S.year}.`);
+  },
   "partner-tab"(el) { S.partnerTab = el.dataset.tab; S.notice = null; },
   "toggle-open"(el) { S.open[el.dataset.id] = !S.open[el.dataset.id]; },
   "close-modal"() { S.modal = null; },
