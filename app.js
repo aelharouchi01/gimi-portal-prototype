@@ -406,8 +406,12 @@ function adminOverview() {
     <div class="kpi-group">
       <h3>Finances</h3>
       <div class="kpi-row">
-        ${kpi("finance", "Partner revenue", money(invoices.reduce((n, i) => n + i.partnerRevenue, 0)), "What partners billed their own clients: the full certificate value for everyone they trained. Entered by hand on each invoice.", versus(prev, money(pInvoices.reduce((n, i) => n + i.partnerRevenue, 0))))}
-        ${kpi("finance", "GIMI invoiced", money(invoiced), "GIMI's part of that, billed to the partner. Entered by hand, never calculated from partner revenue. Drafts excluded.", versus(prev, money(pInvoiced)))}
+        <!-- Partner revenue deliberately absent. It is what a partner says it billed its
+             own client, so GIMI cannot verify it, and an unverifiable figure standing
+             beside three exact ones invites more confidence than it deserves. The number
+             still lives on each invoice and in the partner workspace, where it has the
+             context that makes it meaningful. -->
+        ${kpi("finance", "GIMI invoiced", money(invoiced), "What GIMI billed partners. Entered by hand on each invoice. Drafts excluded.", versus(prev, money(pInvoiced)))}
         ${kpi("finance", "GIMI received", money(received), "Invoices confirmed paid.", versus(prev, money(pReceived)))}
         ${kpi("finance", "Outstanding", money(invoiced - received), "Invoiced minus received.", versus(prev, money(pInvoiced - pReceived)))}
       </div>
