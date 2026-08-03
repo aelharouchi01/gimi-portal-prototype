@@ -87,10 +87,15 @@ top of the tab it belongs to.
 | Students | Submissions to process, expandable to the full roster, then all students with result dropdowns |
 | Invoices | Revenue by partner, then all invoices with the lifecycle actions and a status legend |
 | Leads | Every lead across partners, new ones first, mark reviewed |
-| Recognition | Leaderboard on/off switch, CTP of the Month polls, nominations queue, past winners, revenue ranking |
+| Recognition | The monthly cycle: nominations, the poll, past winners, closed polls, then the partner ranking |
+| Settings | The Library documents partners can download, and the leaderboard switch |
 
-**Partner portal.** Dashboard, Students with an enrolment staging table and a progress list,
-Invoices, Leads, Library, Community, Leaderboard (only when the flag is on), Profile.
+**Partner portal.** Dashboard, Students, Invoices, Leads, Library, Community, and Leaderboard
+only when the flag is on.
+
+**There is no Profile tab.** A partner's own details, their directory choice and their logins
+sit at the foot of the Dashboard. They are settings you change occasionally, not a place you
+go to work, so they do not earn a tab.
 
 **The onboarding chain, end to end.** Add a partner with a company name and an email. The
 invitation email appears on screen instead of being sent, with a button to open the link as
