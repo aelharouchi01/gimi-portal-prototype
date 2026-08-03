@@ -9,6 +9,10 @@ authentication and there is no database. A refresh resets it. Its job is to sett
 screen should do and to be shown to colleagues. It is not a foundation to build the real
 product on.
 
+**Read `docs/status.md` first.** This file says what the prototype should be;
+`docs/status.md` says what it currently is, what is deliberately absent, and what is
+waiting on a decision.
+
 ---
 
 ## Stack, and why it is this small
