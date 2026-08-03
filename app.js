@@ -417,7 +417,7 @@ function adminOverview() {
     <div class="status-list">${statusList}</div>
   </section>
 
-  <section class="block">
+  <section class="block block-plain">
     <div class="kpi-group">
       <h3>Network</h3>
       <div class="kpi-row">
@@ -748,7 +748,7 @@ function partnerPage(id) {
     </div>
   </div>
 
-  <section class="block">
+  <section class="block block-plain">
     <div class="kpi-group">
       <h3>Delivery</h3>
       <div class="kpi-row">
@@ -1471,7 +1471,7 @@ function partnerDashboard() {
       </div>
     </section>` : ""}
 
-  <section class="block">
+  <section class="block block-plain">
     <div class="kpi-row">
       ${kpi("delivery", "Enrolled", students.length)}
       ${kpi("delivery", "Certified", certified)}
@@ -1677,6 +1677,7 @@ function partnerInvoices() {
 
 function partnerLeads() {
   const rows = myLeads();
+  const withGimi = rows.filter((l) => !l.reviewed);
   return `
   <div class="page-head">
     <h1>Leads</h1>
@@ -1703,21 +1704,38 @@ function partnerLeads() {
       </div>` : ""}
   </div>
 
-  ${rows.length === 0 ? `<div class="empty">No leads shared yet.</div>` : `
-    <div class="table-scroll"><table>
-      <thead><tr><th>Company</th><th>Stage</th><th>Probability</th><th>Met</th><th>Docs sent</th><th class="num">Expected</th><th>GIMI</th></tr></thead>
-      <tbody>${rows.map((l) => `
-        <tr>
-          <td>${esc(l.company)}<span class="sub">${esc(l.contact)}</span></td>
-          <td>${esc(LEAD_STAGE[l.stage])}</td>
-          <td>${esc(l.probability)}</td>
-          <td>${esc(MET_STATUS[l.metStatus])}</td>
-          <td>${esc(DOCS_SENT[l.docsSent])}</td>
-          <td class="num">${money(l.expectedRevenue)}</td>
-          <td>${l.reviewed ? badge("Reviewed", "badge-paid") : badge("With GIMI", "badge-pending")}</td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>`}`;
+  <section class="block">
+    <h2>With GIMI, not yet reviewed (${withGimi.length})</h2>
+    ${withGimi.length === 0
+      ? `<div class="empty">GIMI has looked at every lead you shared.</div>`
+      : `<div class="table-scroll"><table>${MY_LEAD_HEAD}<tbody>${myLeadRows(withGimi)}</tbody></table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>All your leads</h2>
+    ${rows.length === 0
+      ? `<div class="empty">No leads shared yet.</div>`
+      : `<div class="table-scroll"><table>${MY_LEAD_HEAD}<tbody>${myLeadRows(rows)}</tbody></table></div>`}
+  </section>`;
+}
+
+const MY_LEAD_HEAD = `<thead><tr>
+  <th>Company</th><th>Stage</th><th>Probability</th><th>Met</th>
+  <th>Docs sent</th><th class="num">Expected</th><th>GIMI</th>
+</tr></thead>`;
+
+/** Shared by both partner lead tables so they cannot drift apart. */
+function myLeadRows(rows) {
+  return rows.map((l) => `
+    <tr>
+      <td>${esc(l.company)}<span class="sub">${esc(l.contact)}</span></td>
+      <td>${esc(LEAD_STAGE[l.stage])}</td>
+      <td>${esc(l.probability)}</td>
+      <td>${esc(MET_STATUS[l.metStatus])}</td>
+      <td>${esc(DOCS_SENT[l.docsSent])}</td>
+      <td class="num">${money(l.expectedRevenue)}</td>
+      <td>${l.reviewed ? badge("Reviewed", "badge-paid") : badge("With GIMI", "badge-pending")}</td>
+    </tr>`).join("");
 }
 
 /**
@@ -1888,32 +1906,50 @@ function partnerLeaderboard() {
 function partnerProfile() {
   const me = partner(myId());
   return `
-  <div class="page-head"><h1>Profile</h1></div>
-  <div class="panel" style="max-width:640px">
-    <div class="grid-2">
+  <div class="page-head">
+    <h1>Profile</h1>
+    <p class="count">Your organisation's details, as GIMI sees them.</p>
+  </div>
+
+  <section class="block">
+    <h2>Your organisation</h2>
+    <div class="grid-2" style="max-width:720px">
       <label class="field"><span>Company name</span><input type="text" value="${esc(me.name)}"></label>
       <label class="field"><span>Country</span><input type="text" value="${esc(me.country)}"></label>
       <label class="field"><span>Website</span><input type="text" value="${esc(me.website)}"></label>
       <label class="field"><span>Phone</span><input type="text" value="${esc(me.phone)}"></label>
-      <label class="field"><span>Annual revenue target</span><input type="text" value="${me.expectedRevenue ? Math.round(me.expectedRevenue / 100) : ""}"></label>
+      <label class="field"><span>Annual revenue target</span>
+        <input type="text" value="${me.expectedRevenue ? Math.round(me.expectedRevenue / 100) : ""}" placeholder="120000">
+        <span class="hint">Your own target. GIMI records it for context only.</span></label>
     </div>
-    <div class="toggle-row" style="margin-top:6px">
+    <button class="btn btn-sm" data-action="stub">Save changes</button>
+  </section>
+
+  <section class="block">
+    <h2>Partner directory</h2>
+    <div class="toggle-row" style="margin-bottom:0">
       <div>
         <div class="lbl">Show us in the partner directory</div>
-        <span class="sub">Other partners can see your name, country and website.</span>
+        <span class="sub">Other partners can see your name, country and website. Nothing else.</span>
       </div>
       <button class="btn ${me.visibleInDirectory ? "btn-danger" : ""} btn-sm" data-action="toggle-directory">
         ${me.visibleInDirectory ? "Turn off" : "Turn on"}
       </button>
     </div>
-    <h2 style="font-size:12px;color:var(--teal-deep);margin:18px 0 8px">Logins on this account</h2>
+  </section>
+
+  <section class="block">
+    <div class="section-head">
+      <h2>Logins on this account (${me.users.length})</h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" data-action="stub">+ Add another login</button>
+      </div>
+    </div>
     <div class="table-scroll"><table>
       <thead><tr><th>Name</th><th>Email</th><th>Last signed in</th></tr></thead>
       <tbody>${me.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td class="nowrap">${date(u.lastLogin)}</td></tr>`).join("")}</tbody>
     </table></div>
-    <p class="count" style="margin-top:8px">Every login has the same rights. Add another and they can do everything you can.</p>
-    <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" data-action="stub">+ Add another login</button></div>
-  </div>`;
+  </section>`;
 }
 
 /* ---------------------------------------------------------------- modal */
