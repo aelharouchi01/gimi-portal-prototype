@@ -120,9 +120,11 @@ const DB = {
       website: r.contacts[0] ? r.contacts[0].split("@")[1] : "",
       linkedin: "",
       phone: "",
-      // Not supplied in the workbook. Left null rather than invented, so nobody
-      // mistakes a made-up target for a real one.
-      expectedRevenue: null,
+      // Not supplied in the workbook, so only the demo partner has one. A partner
+      // sets their own during onboarding. Where there is none the progress bar says
+      // so rather than showing an empty bar that looks like failure.
+      expectedRevenue: index === 0 ? 4000000 : null,
+      certTarget: index === 0 ? 40 : null,
       // A partner's own choice, so spread rather than tied to anything real.
       visibleInDirectory: index % 3 !== 2,
       createdAt: `202${4 + (index % 2)}-0${(index % 9) + 1}-1${index % 9}`,
@@ -152,6 +154,7 @@ const DB = {
       website: "", linkedin: "", phone: "",
       expectedRevenue: null,
       visibleInDirectory: false,
+      certTarget: null,
       createdAt: d.sentAt,
       approvedAt: null,
       users: [], // Nobody until they complete their own details.
@@ -181,12 +184,60 @@ const DB = {
      Library to see what they can sell and deliver. */
   catalogue: CATALOGUE.map((c) => ({ ...c, lmsLink: LMS_LINKS[c.name] ?? null })),
 
+  /* The resource hub. Real GIMI documents, with their real titles, formats and
+     sizes, grouped by what a partner would be looking for.
+
+     The files themselves are not in this repository: together they are about 118 MB,
+     which does not belong in a public repo and would make the site slow to clone.
+     Download says so plainly rather than pretending. In the real build these live in
+     file storage and the button fetches them; the flow is already proven by the
+     invoice and lead attachments, which download the actual file. */
   library: [
-    { id: "d1", name: "GIMI certification overview", kind: "Deck", updated: "2026-06-02" },
-    { id: "d2", name: "Partner proposal template", kind: "Deck", updated: "2026-05-18" },
-    { id: "d3", name: "Innovation Management Body of Knowledge", kind: "Book", updated: "2026-01-20" },
-    { id: "d4", name: "Enrollment template", kind: "Spreadsheet", updated: "2026-07-01" },
-    { id: "d5", name: "Online exam instructions for candidates", kind: "Document", updated: "2026-04-11" },
+    {
+      id: "d1", group: "About GIMI",
+      name: "About GIMI", kind: "PDF", pages: 48, mb: 4.6, updated: "2026-06-02",
+      note: "The organisation, the standard and the network. Start here with a new client.",
+    },
+    {
+      id: "d2", group: "About GIMI",
+      name: "GIMI Programs: portfolio and approach 2026", kind: "PDF", pages: 17, mb: 1.6, updated: "2026-05-18",
+      note: "One summary of every programme and how they fit together.",
+    },
+    {
+      id: "d3", group: "About GIMI",
+      name: "GIMI Product Catalogue V68", kind: "PowerPoint", pages: 64, mb: 16.3, updated: "2026-06-02",
+      note: "All 65 products, one slide each: description, what is included, prices.",
+    },
+    {
+      id: "d4", group: "Certification brochures",
+      name: "Certified Innovation Professional (CIP)", kind: "PDF", pages: 300, mb: 29.3, updated: "2026-04-11",
+      note: "Partner-facing brochure for the CIP series, Levels 0 to 2.",
+    },
+    {
+      id: "d5", group: "Certification brochures",
+      name: "Certified Chief Innovation Officer (CCIO)", kind: "PDF", pages: 247, mb: 24.1, updated: "2026-04-11",
+      note: "Partner-facing brochure for CCIO, Levels 3 and 4.",
+    },
+    {
+      id: "d6", group: "Membership and speaking",
+      name: "Membership Brochure 2026", kind: "PDF", pages: 134, mb: 13.1, updated: "2026-03-20",
+      note: "Individual and organisational membership, benefits and pricing.",
+    },
+    {
+      id: "d7", group: "Membership and speaking",
+      name: "Hitendra Patel: speaker brochure 2025", kind: "PDF", pages: 302, mb: 29.4, updated: "2025-11-30",
+      note: "Keynote topics and past engagements, for pitching a speaking slot.",
+    },
+    {
+      id: "d8", group: "Templates you will need",
+      name: "Student enrollment template", kind: "Spreadsheet", pages: null, mb: 0.1, updated: "2026-07-01",
+      note: "The sheet to fill in before submitting students. Required fields are marked.",
+    },
+    {
+      id: "d9", group: "Templates you will need",
+      name: "Online exam instructions for candidates", kind: "PDF", pages: 4, mb: 0.3, updated: "2026-04-11",
+      note: "Send this to every student before their exam date.",
+    },
   ],
 
   forum: [],
@@ -271,6 +322,15 @@ DB.submissions.push(
     ],
   },
   {
+    id: "sub3", partnerId: active[0].id,
+    fileName: `${slug(active[0].name)}_may_cohort.xlsx`,
+    submittedAt: "2026-05-02", status: "PROCESSED",
+    roster: [
+      { first: "Nadia", last: "Alaoui", email: "nadia.alaoui@example.com", cert: CERT_L1, examDate: "2026-05-14", lang: "English", format: "ONSITE_PROCTORED", company: "OCP Group" },
+      { first: "Omar", last: "Fassi", email: "omar.fassi@example.com", cert: CERT_L1, examDate: "2026-05-14", lang: "English", format: "ONSITE_PROCTORED", company: "OCP Group" },
+    ],
+  },
+  {
     id: "sub2", partnerId: active[1].id,
     fileName: `${slug(active[1].name)}_batch_04.xlsx`,
     submittedAt: "2026-07-28", status: "PENDING",
@@ -284,37 +344,52 @@ DB.submissions.push(
 
 /* Invoices across the lifecycle and across two years, including one draft that no
    partner may see.
-     description, headcount, partnerRevenue, gimiAmount, status, bank ref, year
+     description, headcount, partnerRevenue, gimiAmount, status, bank ref, year, partnerIndex
+
+   The demo partner is index 0, and deliberately holds one of each state: paid, sent
+   and payable, sent and overdue, and reported awaiting confirmation. A partner view
+   with nothing to act on demonstrates nothing.
+
    Partner revenue is the headcount times the catalogue certificate price, which is
-   what the figure means. The GIMI amount is a plausible negotiated number and is
-   NOT a fixed proportion of it: the last row is a student cohort at half price,
-   and the second is a partner GIMI charges less. That variation is the reason the
-   product refuses to derive one figure from the other. */
+   what that figure means. The GIMI amount is a plausible negotiated number and is
+   NOT a fixed proportion of it: the student cohort is at half price and one partner
+   is charged less. That variation is why the product refuses to derive one figure
+   from the other. */
 const invoiceSeed = [
-  //                                                                    12 × $560
-  ["Level 1 Associate cohort, May 2026", 12, 672000, 403200, "PAID", "TRF-88213", 2026],
-  ["Level 2 Master cohort, April 2026", 9, 504000, 252000, "PAID", "SEB-55190", 2026],
-  ["CCIO Level 3 cohort, March 2026", 7, 392000, 235200, "PAYMENT_REPORTED", "ENBD-77410", 2026],
-  ["Catalyst cohort, June 2026", 5, 100000, 60000, "SENT", null, 2026],
-  ["Design Thinking Level 1, July 2026", 4, 164000, 82000, "SENT", null, 2026],
-  ["Level 1 Associate cohort, July 2026", 6, 0, 0, "DRAFT", null, 2026],
-  ["Level 1 Associate cohort, October 2025", 18, 1008000, 604800, "PAID", "TRF-70118", 2025],
-  ["Foresight Level 1, November 2025", 6, 336000, 201600, "PAID", "SEB-41902", 2025],
-  ["GIMI Impact Students, September 2025", 22, 220000, 110000, "PAID", "ENBD-38771", 2025],
+  //                                                                    12 x $560
+  ["Level 1 Associate cohort, May 2026", 12, 672000, 403200, "PAID", "TRF-88213", 2026, 0],
+  ["Catalyst cohort, June 2026", 5, 100000, 60000, "SENT", null, 2026, 0],
+  ["Design Thinking Level 1, July 2026", 4, 164000, 82000, "SENT", null, 2026, 0],
+  ["CCIO Level 3 cohort, March 2026", 7, 392000, 235200, "PAYMENT_REPORTED", "ENBD-77410", 2026, 0],
+  ["Level 2 Master cohort, April 2026", 9, 504000, 252000, "PAID", "SEB-55190", 2026, 1],
+  ["Level 1 Associate cohort, July 2026", 6, 0, 0, "DRAFT", null, 2026, 1],
+  ["Level 1 Associate cohort, October 2025", 18, 1008000, 604800, "PAID", "TRF-70118", 2025, 0],
+  ["Foresight Level 1, November 2025", 6, 336000, 201600, "PAID", "SEB-41902", 2025, 2],
+  ["GIMI Impact Students, September 2025", 22, 220000, 110000, "PAID", "ENBD-38771", 2025, 3],
 ];
-invoiceSeed.forEach(([description, count, rev, gimi, status, ref, year], n) => {
+invoiceSeed.forEach(([description, count, rev, gimi, status, ref, year, pi], n) => {
   DB.invoices.push({
     id: "inv" + (n + 1),
-    partnerId: active[n % active.length].id,
+    partnerId: active[pi % active.length].id,
     description, studentCount: count,
     partnerRevenue: rev, gimiAmount: gimi, status,
     issuedAt: status === "DRAFT" ? null : `${year}-0${(n % 9) + 1}-20`,
-    // Two of the 2026 invoices fall before the prototype's today (30 July 2026),
-    // so "overdue" is a state you can actually see rather than a rule with no example.
-    dueDate: n === 3 ? "2026-06-15" : n === 4 ? "2026-07-10" : `${year}-1${n % 2}-15`,
+    // Two of the 2026 invoices fall before the prototype's today of 30 July 2026, so
+    // "overdue" is a state you can see rather than a rule with no example.
+    dueDate: n === 1 ? "2026-06-15" : n === 2 ? "2026-07-10" : `${year}-1${n % 2}-15`,
     pdf: status === "DRAFT" ? null : `GIMI-${year}-0${20 + n}.pdf`,
     qbRef: status === "DRAFT" ? null : `QB-10${40 + n}`,
     payment: ref ? { reference: ref, paidOn: `${year}-1${n % 2}-10`, method: "Bank transfer" } : null,
+
+    /* A thread on the invoice, shared between GIMI and the partner. This is where a
+       partner queries a figure or explains a delay, and GIMI answers, instead of it
+       happening in email nobody else can see. */
+    comments: n === 1
+      ? [{
+          when: "2026-07-02", author: "Rafael Lemaitre", fromGimi: false,
+          text: "Our finance team needs a purchase order number on the invoice before they can release payment. Can you reissue it with PO-44821?",
+        }]
+      : [],
   });
 });
 

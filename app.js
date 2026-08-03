@@ -35,6 +35,10 @@ const S = {
   leadPage: null,
   // Id of the submission whose own page is open, or null for the list.
   submissionPage: null,
+  // Id of the invoice whose own page is open, or null for the list.
+  invoicePage: null,
+  // Id of the partner's own submission being read back, or null.
+  mySubmissionPage: null,
 
   // The month Recognition is working on. An award is decided the month after the
   // one it recognises, so this names the month being recognised, not today.
@@ -359,6 +363,8 @@ function adminShell() {
     ? leadPage(S.leadPage)
     : S.submissionPage
     ? submissionPage(S.submissionPage)
+    : S.invoicePage
+    ? invoicePage(S.invoicePage)
     : {
         overview: adminOverview,
         partners: adminPartners,
@@ -1091,7 +1097,8 @@ function invoiceRows(rows) {
   return rows.map((i) => `
     <tr>
       <td>${esc(partnerName(i.partnerId))}</td>
-      <td>${esc(i.description)}${i.pdf ? `<span class="sub">${esc(i.pdf)}${i.qbRef ? " · " + esc(i.qbRef) : ""}</span>` : `<span class="sub">No invoice attached</span>`}</td>
+      <td><button class="btn-link" data-action="open-invoice" data-id="${i.id}">${esc(i.description)}</button>
+          <span class="sub">${i.pdf ? esc(i.pdf) : "No invoice attached"}${i.comments.length ? ` · ${i.comments.length} comment${i.comments.length > 1 ? "s" : ""}` : ""}</span></td>
       <td class="num">${i.studentCount}</td>
       <td class="num">${money(i.partnerRevenue)}</td>
       <td class="num">${money(i.gimiAmount)}</td>
@@ -1103,8 +1110,114 @@ function invoiceRows(rows) {
           <button class="btn btn-sm" data-action="confirm-payment" data-id="${i.id}">Funds received</button>
           <button class="btn btn-danger btn-sm" data-action="reject-payment" data-id="${i.id}">Not received</button>` : ""}
         ${i.status === "PAID" ? `<span style="font-size:11.5px;color:var(--faint)">Locked</span>` : ""}
+        <button class="btn btn-ghost btn-sm" data-action="open-invoice" data-id="${i.id}">Open</button>
       </div></td>
     </tr>`).join("");
+}
+
+/**
+ * One invoice, on its own page, the same page for both sides.
+ *
+ * It exists mainly for the comment thread: a partner querying a figure or explaining
+ * a delay, and GIMI answering, where both can see it and it is attached to the
+ * invoice rather than lost in somebody's email.
+ */
+function invoicePage(id) {
+  const i = DB.invoices.find((x) => x.id === id);
+  const isAdmin = S.identity.kind === "ADMIN";
+
+  // A partner may only open their own, and never a draft.
+  if (!i || (!isAdmin && (i.partnerId !== myId() || i.status === "DRAFT"))) {
+    S.invoicePage = null;
+    return isAdmin ? adminInvoices() : partnerInvoices();
+  }
+
+  const late = i.status !== "PAID" && i.status !== "DRAFT" && i.dueDate < TODAY;
+  const file = ATTACHMENTS.get(i.id);
+
+  return `
+  <div style="margin-bottom:18px">
+    <button class="btn-link" data-action="close-invoice">← ${isAdmin ? "All invoices" : "Your invoices"}</button>
+  </div>
+
+  <div class="page-head section-head">
+    <div>
+      <h1>${esc(i.description)}</h1>
+      <p class="count">
+        ${isAdmin ? `${esc(partnerName(i.partnerId))} · ` : ""}${invoiceBadge(i.status)}
+        · due ${date(i.dueDate)}${late ? ` · <span style="color:var(--pink);font-weight:700">overdue</span>` : ""}
+        ${i.qbRef ? ` · ${esc(i.qbRef)}` : ""}
+      </p>
+    </div>
+    <div class="toolbar">
+      ${i.pdf ? `<button class="btn btn-ghost btn-sm" data-action="download" data-id="${i.id}">Download invoice</button>` : ""}
+      ${!isAdmin && i.status === "SENT" ? `<button class="btn btn-sm" data-action="open-report" data-id="${i.id}">I have paid this</button>` : ""}
+      ${isAdmin && i.status === "DRAFT" ? `<button class="btn btn-sm" data-action="open-send" data-id="${i.id}">Send to partner</button>` : ""}
+      ${isAdmin && i.status === "PAYMENT_REPORTED" ? `
+        <button class="btn btn-sm" data-action="confirm-payment" data-id="${i.id}">Funds received</button>
+        <button class="btn btn-danger btn-sm" data-action="reject-payment" data-id="${i.id}">Not received</button>` : ""}
+    </div>
+  </div>
+
+  <section class="block block-plain">
+    <div class="kpi-row">
+      ${kpi("finance", isAdmin ? "Partner revenue" : "You billed your client", money(i.partnerRevenue), "The full certificate value for everyone on this invoice.")}
+      ${kpi("finance", "GIMI amount", money(i.gimiAmount), "What GIMI billed for its part. Typed in, never calculated.")}
+      ${kpi("finance", isAdmin ? "Partner keeps" : "You keep", money(i.partnerRevenue - i.gimiAmount))}
+      ${kpi("delivery", "People", i.studentCount, "Derived from the roster this invoice came from.")}
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="block">
+      <h2>The invoice</h2>
+      <table><tbody>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Certification</td><td style="border:0;padding:4px 0">${esc(i.certification || "—")}</td></tr>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Attached file</td><td style="border:0;padding:4px 0">${i.pdf
+          ? esc(i.pdf) + (file ? ` · ${Math.max(1, Math.round(file.size / 1024))} KB` : ` · placeholder`)
+          : "Nothing attached"}</td></tr>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Issued</td><td style="border:0;padding:4px 0">${date(i.issuedAt)}</td></tr>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Due</td><td style="border:0;padding:4px 0">${date(i.dueDate)}</td></tr>
+      </tbody></table>
+    </section>
+
+    <section class="block">
+      <h2>Payment</h2>
+      ${i.payment
+        ? `<table><tbody>
+            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Reference</td><td style="border:0;padding:4px 0">${esc(i.payment.reference)}</td></tr>
+            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Paid on</td><td style="border:0;padding:4px 0">${date(i.payment.paidOn)}</td></tr>
+            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Method</td><td style="border:0;padding:4px 0">${esc(i.payment.method)}</td></tr>
+            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Status</td><td style="border:0;padding:4px 0">${i.status === "PAID"
+              ? "Confirmed received by GIMI"
+              : "Reported, awaiting GIMI's confirmation"}</td></tr>
+          </tbody></table>`
+        : `<div class="empty" style="padding:20px">${i.status === "SENT"
+            ? (isAdmin ? "The partner has not reported a payment yet." : "Once you have paid, tell GIMI with the button above.")
+            : "Nothing to report yet."}</div>`}
+    </section>
+  </div>
+
+  <section class="block">
+    <h2>Comments (${i.comments.length})</h2>
+    <label class="field">
+      <textarea id="ic-text" placeholder="${isAdmin
+        ? "A reply to the partner about this invoice"
+        : "A question for GIMI about this invoice"}"></textarea>
+    </label>
+    <button class="btn btn-sm" data-action="add-invoice-comment" data-id="${i.id}">Add comment</button>
+    <div style="margin-top:14px">
+      ${i.comments.length === 0
+        ? `<div class="empty">No comments yet. Anything written here is visible to both sides.</div>`
+        : i.comments.map((c) => `
+          <div style="border:1px solid var(--line);border-left:3px solid ${c.fromGimi ? "var(--teal)" : "var(--yellow)"};border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px">
+            <p style="font-size:11.5px;color:var(--faint);margin-bottom:5px">
+              ${esc(c.author)}${c.fromGimi ? " · GIMI" : " · partner"} · ${date(c.when)}
+            </p>
+            <p style="font-size:13.5px">${esc(c.text)}</p>
+          </div>`).join("")}
+    </div>
+  </section>`;
 }
 
 const INVOICE_HEAD = `<thead><tr>
@@ -1664,7 +1777,13 @@ function partnerShell() {
   const tabs = partnerTabs();
   if (!tabs.some(([k]) => k === S.partnerTab)) S.partnerTab = "dashboard";
 
-  const body = S.leadPage ? leadPage(S.leadPage) : {
+  const body = S.leadPage
+    ? leadPage(S.leadPage)
+    : S.invoicePage
+    ? invoicePage(S.invoicePage)
+    : S.mySubmissionPage
+    ? mySubmissionPage(S.mySubmissionPage)
+    : {
     dashboard: partnerDashboard,
     enroll: partnerStudents,
     invoices: partnerInvoices,
@@ -1699,15 +1818,56 @@ const myInvoices = () => DB.invoices.filter((i) => i.partnerId === myId() && i.s
 const myLeads = () => DB.leads.filter((l) => l.partnerId === myId());
 const mySubmissions = () => DB.submissions.filter((s) => s.partnerId === myId());
 
+/**
+ * The partner's dashboard. The order GIMI asked for:
+ *
+ *   1. Figures about their own three tabs: students, invoices, leads
+ *   2. Announcements, meaning the open CTP vote
+ *   3. Progress against their own targets
+ *   4. Nominations they have submitted, and the form to submit another
+ *
+ * "Your revenue" here is what they keep: what they billed their client minus what
+ * GIMI billed them. Both figures are typed on the invoice, so this is a subtraction
+ * of two known numbers, not a share of anything.
+ */
 function partnerDashboard() {
   const me = partner(myId());
   const students = myStudents();
+  const invoices = myInvoices();
+  const subs = mySubmissions();
+
   const certified = students.filter((s) => s.status === "PASSED").length;
-  const revenue = myInvoices().reduce((n, i) => n + i.partnerRevenue, 0);
-  const target = me.expectedRevenue ?? 0;
+  const awaiting = subs.filter((s) => s.status === "PENDING").reduce((n, x) => n + x.roster.length, 0);
+
+  const outstanding = invoices.filter((i) => i.status === "SENT" || i.status === "PAYMENT_REPORTED");
+  const outstandingTotal = outstanding.reduce((n, i) => n + i.gimiAmount, 0);
+  // What the partner keeps: their own billing less GIMI's share of it.
+  const kept = invoices.reduce((n, i) => n + (i.partnerRevenue - i.gimiAmount), 0);
+
+  const leads = myLeads();
   const openPoll = DB.polls.find((p) => p.status === "OPEN");
-  const alreadyVoted = openPoll?.votedBy.includes(S.identity.email);
+  const alreadyVoted = openPoll ? openPoll.votedBy.includes(S.identity.email) : false;
   const myNominations = DB.nominations.filter((n) => n.byPartnerId === myId());
+
+  const bar = (label, now, target, unit) => {
+    if (!target) {
+      return `
+      <tr>
+        <td>${esc(label)}</td>
+        <td class="num">${unit === "money" ? money(now) : now}</td>
+        <td class="num" colspan="2"><span style="color:var(--faint)">No target set. Add one in Profile.</span></td>
+      </tr>`;
+    }
+    const pct = Math.min(100, Math.round((now / target) * 100));
+    return `
+    <tr>
+      <td>${esc(label)}</td>
+      <td class="num">${unit === "money" ? money(now) : now}</td>
+      <td class="num">${unit === "money" ? money(target) : target}</td>
+      <td><div class="bar ${pct >= 100 ? "green" : ""}"><i style="width:${pct}%"></i></div>
+          <span class="sub">${pct}% of target</span></td>
+    </tr>`;
+  };
 
   return `
   <div class="page-head">
@@ -1715,18 +1875,45 @@ function partnerDashboard() {
     <p class="count">Signed in as ${esc(S.identity.name)}.</p>
   </div>
 
+  <section class="block block-plain">
+    <div class="kpi-group">
+      <h3>Your students</h3>
+      <div class="kpi-row">
+        ${kpi("delivery", "Enrolled", students.length, "Students GIMI has enrolled from your submissions.")}
+        ${kpi("delivery", "Awaiting GIMI", awaiting, "People in submissions GIMI has not processed yet.")}
+        ${kpi("delivery", "Certified", certified, "Students who passed their exam.")}
+        ${kpi("delivery", "Pass rate", passRate(students), "Passed divided by passed plus failed.")}
+      </div>
+    </div>
+    <div class="kpi-group">
+      <h3>Your invoices</h3>
+      <div class="kpi-row">
+        ${kpi("finance", "Your revenue", money(kept), "What you billed your clients, less what GIMI billed you. What you keep.")}
+        ${kpi("finance", "Outstanding to GIMI", money(outstandingTotal), "Invoices you have not settled yet.")}
+        ${kpi("finance", "Invoices open", outstanding.length, "Sent or awaiting GIMI's confirmation of your payment.")}
+      </div>
+    </div>
+    <div class="kpi-group">
+      <h3>Your leads</h3>
+      <div class="kpi-row">
+        ${kpi("network", "Shared with GIMI", leads.length, "Leads you have shared for support.")}
+        ${kpi("network", "Reviewed by GIMI", leads.filter((l) => l.reviewed).length)}
+        ${kpi("network", "Pipeline value", money(leads.reduce((n, l) => n + l.expectedRevenue, 0)), "Your own estimate across those leads.")}
+      </div>
+    </div>
+  </section>
+
   ${openPoll ? `
     <section class="block">
-      <h2>CTP of the Month vote</h2>
-      <div class="panel" style="padding:18px">
-        <h2 style="font-size:14px;color:var(--teal-dark)">${esc(openPoll.question)}</h2>
-        <p class="count" style="margin:4px 0 14px">
-          Recognising ${esc(monthName(openPoll.month))}. One vote per account.
-          ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
-        </p>
-        ${alreadyVoted ? `
-          <div class="notice notice-ok">Vote recorded. Results are published when the poll closes.</div>
-        ` : openPoll.options.map((o) => `
+      <h2>Announcement · CTP of the Month</h2>
+      <p style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:4px">${esc(openPoll.question)}</p>
+      <p class="count" style="margin-bottom:14px">
+        Recognising ${esc(monthName(openPoll.month))}. One vote per account.
+        ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
+      </p>
+      ${alreadyVoted
+        ? `<div class="notice notice-ok" style="margin:0">Vote recorded. Results are published when the poll closes.</div>`
+        : openPoll.options.map((o) => `
           <div class="poll-option">
             <div style="flex:1">${esc(o.label)}</div>
             <button class="btn btn-sm" data-action="vote" data-poll="${openPoll.id}" data-id="${o.id}"
@@ -1734,51 +1921,59 @@ function partnerDashboard() {
               ${o.partnerId === myId() ? "That's you" : "Vote"}
             </button>
           </div>`).join("")}
-        <p class="count">Partners are asked not to vote for themselves, and their own entry is not selectable.</p>
-      </div>
     </section>` : ""}
 
-  <section class="block block-plain">
-    <div class="kpi-row">
-      ${kpi("delivery", "Enrolled", students.length)}
-      ${kpi("delivery", "Certified", certified)}
-      ${kpi("delivery", "Pass rate", passRate(students))}
-      ${kpi("network", "Certifications used", new Set(students.map((s) => s.cert)).size)}
-    </div>
-  </section>
-
   <section class="block">
-    <h2>Progress</h2>
+    <h2>Your progress</h2>
     <div class="table-scroll"><table>
-      <thead><tr><th>Measure</th><th class="num">Now</th><th class="num">Target</th><th style="width:35%">Progress</th></tr></thead>
+      <thead><tr><th>Measure</th><th class="num">Now</th><th class="num">Target</th><th style="width:34%">Progress</th></tr></thead>
       <tbody>
-        <tr>
-          <td>Your revenue</td>
-          <td class="num">${money(revenue)}</td>
-          <td class="num">${money(me.expectedRevenue)}</td>
-          <td><div class="bar green"><i style="width:${target ? Math.min(100, (revenue / target) * 100) : 0}%"></i></div></td>
-        </tr>
-        <tr>
-          <td>People certified</td>
-          <td class="num">${certified}</td>
-          <td class="num">25</td>
-          <td><div class="bar"><i style="width:${Math.min(100, (certified / 25) * 100)}%"></i></div></td>
-        </tr>
+        ${bar("People certified", certified, me.certTarget, "count")}
+        ${bar("Your revenue", kept, me.expectedRevenue, "money")}
       </tbody>
     </table></div>
   </section>
 
+  <div class="adder">
+    <div class="adder-head">
+      <h2>Nominate a partner for CTP of the Month</h2>
+      <button class="btn btn-sm" data-action="toggle-open" data-id="my-nom">
+        ${S.open["my-nom"] ? "Cancel" : "+ Nominate a partner"}
+      </button>
+    </div>
+    ${S.open["my-nom"] ? `
+      <div class="adder-body">
+        <div class="grid-2">
+          <label class="field"><span>Partner</span>
+            <select id="mn-partner">${DB.partners
+              .filter((p) => p.status === "ACTIVE" && p.visibleInDirectory)
+              .map((p) => `<option value="${p.id}">${esc(p.name)}${p.id === myId() ? " (you)" : ""}</option>`).join("")}</select>
+            <span class="hint">You may nominate yourself.</span></label>
+          <label class="field"><span>Month being recognised</span>
+            <select id="mn-month">${AWARD_MONTHS.map((m) => `<option value="${m}">${monthName(m)}</option>`).join("")}</select></label>
+        </div>
+        <label class="field"><span>What they did</span>
+          <textarea id="mn-text" placeholder="Trained 40 people across three ministries, 38 certified."></textarea>
+          <span class="hint">GIMI reads this and may use your words as the wording on the poll.</span></label>
+        <button class="btn btn-sm" data-action="add-my-nomination">Send nomination to GIMI</button>
+      </div>` : ""}
+  </div>
+
   <section class="block">
-    <h2>Nominations you submitted</h2>
-    ${myNominations.length === 0 ? `<div class="empty">You have not nominated anyone this month.</div>` : `
-      <div class="table-scroll"><table>
-        <thead><tr><th>Month</th><th>Nominated</th><th>Why</th><th>Status</th></tr></thead>
-        <tbody>${myNominations.map((n) => `<tr>
-          <td class="nowrap">${esc(monthName(n.month))}</td>
-          <td>${esc(partnerName(n.partnerId))}</td>
-          <td>${esc(n.text)}</td>
-          <td>${badge(n.status === "PENDING" ? "With GIMI" : n.status === "SELECTED" ? "Selected" : "Not selected", "badge-neutral")}</td>
-        </tr>`).join("")}</tbody>
+    <h2>Nominations you submitted (${myNominations.length})</h2>
+    ${myNominations.length === 0
+      ? `<div class="empty">You have not nominated anyone yet.</div>`
+      : `<div class="table-scroll"><table>
+        <thead><tr><th>Month</th><th>Partner</th><th>What you wrote</th><th>Status</th></tr></thead>
+        <tbody>${myNominations.map((n) => `
+          <tr>
+            <td class="nowrap">${esc(monthName(n.month))}</td>
+            <td>${esc(partnerName(n.partnerId))}${n.partnerId === myId() ? `<span class="sub">yourself</span>` : ""}</td>
+            <td>${esc(n.text)}</td>
+            <td>${badge(n.status === "PENDING" ? "With GIMI" : n.status === "SELECTED" ? "Won" : "Not selected",
+              n.status === "SELECTED" ? "badge-paid" : n.status === "PENDING" ? "badge-pending" : "badge-neutral")}</td>
+          </tr>`).join("")}
+        </tbody>
       </table></div>`}
   </section>`;
 }
@@ -1786,59 +1981,133 @@ function partnerDashboard() {
 function partnerStudents() {
   const subs = mySubmissions();
   const students = myStudents();
+  const waiting = subs.filter((x) => x.status === "PENDING");
+  const rejected = subs.filter((x) => x.status === "REJECTED");
+
+  const subStatus = (x) => {
+    if (x.status === "PENDING") return badge("With GIMI", "badge-pending");
+    if (x.status === "PROCESSED") return badge("Enrolled", "badge-paid");
+    return badge("Sent back to you", "badge-suspended");
+  };
 
   return `
   <div class="page-head">
     <h1>Students</h1>
-    <p class="count">Showing ${students.length} of ${students.length} enrolled.</p>
+    <p class="count">${students.length} enrolled. ${waiting.reduce((n, x) => n + x.roster.length, 0)} waiting on GIMI.</p>
   </div>
 
-  <section class="block">
-    <div class="adder">
-      <div class="adder-head">
-        <h2>Enroll students</h2>
-        <button class="btn btn-sm" data-action="toggle-open" data-id="enroll">
-          ${S.open.enroll ? "Cancel" : "+ Enroll students"}
-        </button>
-      </div>
-      ${S.open.enroll ? stagingArea() : ""}
+  <div class="adder">
+    <div class="adder-head">
+      <h2>Enroll students</h2>
+      <button class="btn btn-sm" data-action="toggle-open" data-id="enroll">
+        ${S.open.enroll ? "Cancel" : "+ Enroll students"}
+      </button>
     </div>
+    ${S.open.enroll ? stagingArea() : ""}
+  </div>
 
-    <h2>Submissions awaiting GIMI (${subs.filter((s) => s.status === "PENDING").length})</h2>
-    ${subs.length === 0 ? `<div class="empty">Nothing submitted yet.</div>` : `
-      <div class="table-scroll"><table>
-        <thead><tr><th>File</th><th class="num">People</th><th>Sent</th><th>Status</th></tr></thead>
-        <tbody>${subs.map((s) => `
+  ${rejected.length ? `
+    <section class="block">
+      <h2>Sent back to you (${rejected.length})</h2>
+      ${rejected.map((x) => `
+        <div class="notice notice-bad" style="margin-bottom:10px">
+          <strong>${esc(x.fileName)}</strong> was not enrolled.
+          ${x.rejectedReason ? `GIMI said: ${esc(x.rejectedReason)}` : "No reason was given."}
+        </div>`).join("")}
+    </section>` : ""}
+
+  <section class="block">
+    <h2>Submissions and where they stand (${subs.length})</h2>
+    ${subs.length === 0
+      ? `<div class="empty">Nothing submitted yet. Use Enroll students above.</div>`
+      : `<div class="table-scroll"><table>
+        <thead><tr>
+          <th>File</th><th class="num">People</th><th>Sent</th>
+          <th>Where it stands</th><th class="right">Actions</th>
+        </tr></thead>
+        <tbody>${subs.map((x) => `
           <tr>
-            <td><button class="btn-link" data-action="toggle-open" data-id="psub-${s.id}">${esc(s.fileName)}</button></td>
-            <td class="num">${s.roster.length}</td>
-            <td class="nowrap">${date(s.submittedAt)}</td>
-            <td>${badge(s.status === "PENDING" ? "With GIMI" : s.status === "PROCESSED" ? "Processed" : "Rejected", s.status === "PROCESSED" ? "badge-paid" : "badge-pending")}</td>
-          </tr>
-          ${S.open["psub-" + s.id] ? `
-            <tr class="detail-row"><td colspan="4">
-              <div class="table-scroll" style="background:var(--white)"><table>
-                <thead><tr><th>Name</th><th>Email</th><th>Certification</th><th>Exam date</th></tr></thead>
-                <tbody>${s.roster.map((r) => `<tr>
-                  <td>${esc(r.first)} ${esc(r.last)}</td><td>${esc(r.email) || missing()}</td>
-                  <td>${esc(r.cert)}</td><td class="nowrap">${date(r.examDate)}</td></tr>`).join("")}</tbody>
-              </table></div>
-            </td></tr>` : ""}`).join("")}
+            <td>${esc(x.fileName)}</td>
+            <td class="num">${x.roster.length}</td>
+            <td class="nowrap">${date(x.submittedAt)}</td>
+            <td>${subStatus(x)}
+              <span class="sub">${x.status === "PENDING"
+                ? "GIMI is reviewing every name before enrolling anyone"
+                : x.status === "PROCESSED"
+                  ? "Everyone on it is now in the list below"
+                  : "Fix what GIMI flagged and send it again"}</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm" data-action="open-my-submission" data-id="${x.id}">See the ${x.roster.length}</button>
+            </div></td>
+          </tr>`).join("")}
         </tbody>
       </table></div>`}
   </section>
 
   <section class="block">
-    <h2>Progress</h2>
-    ${students.length === 0 ? `<div class="empty">No students yet.</div>` : `
-      <div class="table-scroll"><table>
-        <thead><tr><th>Name</th><th>Certification</th><th>Exam date</th><th>Language</th><th>Status</th></tr></thead>
-        <tbody>${students.map((s) => `<tr>
-          <td>${esc(s.first)} ${esc(s.last)}<span class="sub">${esc(s.email)}</span></td>
-          <td>${esc(s.cert)}</td><td class="nowrap">${date(s.examDate)}</td><td>${esc(s.lang)}</td>
-          <td>${badge(STUDENT_STATUS[s.status], s.status === "PASSED" ? "badge-paid" : s.status === "FAILED" ? "badge-suspended" : "badge-neutral")}</td>
-        </tr>`).join("")}</tbody>
+    <div class="section-head">
+      <h2>Your students (${students.length})</h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" data-action="csv-my-students" ${students.length === 0 ? "disabled" : ""}>Download CSV</button>
+      </div>
+    </div>
+    ${students.length === 0
+      ? `<div class="empty">No students yet. They appear here once GIMI enrolls a submission.</div>`
+      : `<div class="table-scroll"><table>
+        <thead><tr><th>Name</th><th>Certification</th><th>Exam date</th><th>Language</th><th>Result</th></tr></thead>
+        <tbody>${students.map((x) => `
+          <tr>
+            <td>${esc(x.first)} ${esc(x.last)}<span class="sub">${esc(x.email)}</span></td>
+            <td>${esc(x.cert)}</td>
+            <td class="nowrap">${date(x.examDate)}</td>
+            <td>${esc(x.lang)}</td>
+            <td>${badge(STUDENT_STATUS[x.status],
+              x.status === "PASSED" ? "badge-paid" : x.status === "FAILED" ? "badge-suspended" : "badge-neutral")}</td>
+          </tr>`).join("")}
+        </tbody>
       </table></div>`}
+  </section>`;
+}
+
+/**
+ * A partner reading back one of their own submissions. Read-only: once it is sent,
+ * GIMI is looking at it.
+ */
+function mySubmissionPage(id) {
+  const sub = DB.submissions.find((x) => x.id === id);
+  if (!sub || sub.partnerId !== myId()) { S.mySubmissionPage = null; return partnerStudents(); }
+
+  return `
+  <div style="margin-bottom:18px">
+    <button class="btn-link" data-action="close-my-submission">← Your students</button>
+  </div>
+
+  <div class="page-head">
+    <h1>${esc(sub.fileName)}</h1>
+    <p class="count">
+      Sent ${date(sub.submittedAt)} · ${sub.roster.length} people ·
+      ${sub.status === "PENDING" ? badge("With GIMI", "badge-pending")
+        : sub.status === "PROCESSED" ? badge("Enrolled", "badge-paid")
+        : badge("Sent back to you", "badge-suspended")}
+    </p>
+  </div>
+
+  ${sub.rejectedReason ? `<div class="notice notice-bad">GIMI said: ${esc(sub.rejectedReason)}</div>` : ""}
+
+  <section class="block">
+    <h2>Everyone you submitted (${sub.roster.length})</h2>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Name</th><th>Email</th><th>Certification</th><th>Exam date</th><th>Format</th></tr></thead>
+      <tbody>${sub.roster.map((r) => `
+        <tr${rowIncomplete(r) ? ' style="background:rgba(240,135,30,.07)"' : ""}>
+          <td>${esc(r.first)} ${esc(r.last)}</td>
+          <td>${esc(r.email) || missing()}</td>
+          <td>${esc(r.cert) || missing()}</td>
+          <td class="nowrap">${r.examDate ? date(r.examDate) : missing()}</td>
+          <td>${esc(EXAM_FORMATS.find((f) => f.value === r.format)?.label ?? "—")}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table></div>
   </section>`;
 }
 
@@ -1884,22 +2153,26 @@ function stagingArea() {
 
 const PARTNER_INVOICE_HEAD = `<thead><tr>
   <th>Description</th><th class="num">People</th><th class="num">Your revenue</th>
-  <th class="num">GIMI amount</th><th>Status</th><th>Due</th><th class="right">Actions</th>
+  <th class="num">GIMI amount</th><th class="num">You keep</th>
+  <th>Status</th><th>Due</th><th class="right">Actions</th>
 </tr></thead>`;
 
 /** Shared by both partner invoice tables so they cannot drift apart. */
 function partnerInvoiceRows(rows) {
   return rows.map((i) => `
     <tr>
-      <td>${esc(i.description)}</td>
+      <td><button class="btn-link" data-action="open-invoice" data-id="${i.id}">${esc(i.description)}</button>
+          <span class="sub">${i.comments.length ? `${i.comments.length} comment${i.comments.length > 1 ? "s" : ""}` : "No comments"}</span></td>
       <td class="num">${i.studentCount}</td>
       <td class="num">${money(i.partnerRevenue)}</td>
       <td class="num">${money(i.gimiAmount)}</td>
-      <td>${invoiceBadge(i.status)}${i.payment ? `<span class="sub">${esc(i.payment.reference)}</span>` : ""}</td>
+      <td class="num">${money(i.partnerRevenue - i.gimiAmount)}</td>
+      <td>${invoiceBadge(i.status)}${i.status === "PAYMENT_REPORTED" ? `<span class="sub">awaiting GIMI</span>` : ""}</td>
       <td class="nowrap">${date(i.dueDate)}${i.status === "SENT" && i.dueDate < TODAY ? `<span class="sub" style="color:var(--pink);font-weight:700">Overdue</span>` : ""}</td>
       <td><div class="row-actions">
-        ${i.pdf ? `<button class="btn btn-ghost btn-sm" data-action="download" data-id="${i.id}">Download invoice</button>` : ""}
-        ${i.status === "SENT" ? `<button class="btn btn-sm" data-action="open-report" data-id="${i.id}">Report payment</button>` : ""}
+        ${i.pdf ? `<button class="btn btn-ghost btn-sm" data-action="download" data-id="${i.id}">Download</button>` : ""}
+        ${i.status === "SENT" ? `<button class="btn btn-sm" data-action="open-report" data-id="${i.id}">I have paid this</button>` : ""}
+        <button class="btn btn-ghost btn-sm" data-action="open-invoice" data-id="${i.id}">Open</button>
       </div></td>
     </tr>`).join("");
 }
@@ -2088,32 +2361,52 @@ function catalogueDetail(c) {
   </td></tr>`;
 }
 
+/**
+ * The resource hub. Documents a partner downloads to use with their own clients,
+ * grouped by what they would be looking for, plus the certification catalogue.
+ */
 function partnerLibrary() {
+  const groups = [...new Set(DB.library.map((d) => d.group))];
+
   return `
   <div class="page-head">
     <h1>Library</h1>
-    <p class="count">The same for every partner.</p>
+    <p class="count">Everything GIMI has for you to use with clients. The same for every partner.</p>
   </div>
+
+  ${groups.map((group) => {
+    const docs = DB.library.filter((d) => d.group === group);
+    return `
+    <section class="block">
+      <h2>${esc(group)} (${docs.length})</h2>
+      <div class="table-scroll"><table>
+        <thead><tr>
+          <th>Document</th><th>Format</th><th class="num">Pages</th>
+          <th class="num">Size</th><th>Updated</th><th class="right">Actions</th>
+        </tr></thead>
+        <tbody>${docs.map((d) => `
+          <tr>
+            <td>${esc(d.name)}<span class="sub">${esc(d.note)}</span></td>
+            <td class="nowrap">${esc(d.kind)}</td>
+            <td class="num">${d.pages ?? "—"}</td>
+            <td class="num nowrap">${d.mb < 1 ? Math.round(d.mb * 1000) + " KB" : d.mb + " MB"}</td>
+            <td class="nowrap">${date(d.updated)}</td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm" data-action="download-doc" data-id="${d.id}">Download</button>
+            </div></td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>
+    </section>`;
+  }).join("")}
 
   ${catalogueSection()}
 
   <section class="block">
-    <h2>Documents (${DB.library.length})</h2>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Document</th><th>Type</th><th>Updated</th><th class="right">Actions</th></tr></thead>
-      <tbody>${DB.library.map((d) => `
-        <tr>
-          <td>${esc(d.name)}</td><td>${esc(d.kind)}</td><td class="nowrap">${date(d.updated)}</td>
-          <td><div class="row-actions"><button class="btn btn-ghost btn-sm" data-action="download-doc" data-id="${d.id}">Download</button></div></td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>
-  </section>
-  <section class="block" style="margin-top:24px">
     <h2>Talk to GIMI</h2>
-    <div class="panel" style="padding:16px;display:flex;gap:10px;flex-wrap:wrap">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn btn-sm" data-action="stub">Book a meeting with the team</button>
-      <button class="btn btn-ghost btn-sm" data-action="stub">Open gimiinstitute.org</button>
+      <button class="btn btn-ghost btn-sm" data-action="stub">Open giminstitute.org</button>
     </div>
   </section>`;
 }
@@ -2417,7 +2710,8 @@ const ACTIONS = {
     notice("ok", `Downloaded ${file.name}.`);
   },
   "download-doc"(el) {
-    notice("info", `${DB.library.find((d) => d.id === el.dataset.id).name} would download here.`);
+    const d = DB.library.find((x) => x.id === el.dataset.id);
+    notice("info", `"${d.name}" is ${d.mb} MB and is not bundled with this prototype, so there is nothing to download yet. In the real portal this button fetches the file.`);
   },
 
   /* ------------------------------------------------------ partners: invite */
@@ -2671,6 +2965,20 @@ const ACTIONS = {
     S.open["add-invoice"] = false;
     notice("ok", `Draft created with ${chosen.name} attached. Invisible to the partner until you send it.`);
   },
+  "open-invoice"(el) { S.invoicePage = el.dataset.id; S.notice = null; },
+  "close-invoice"() { S.invoicePage = null; S.notice = null; },
+
+  "add-invoice-comment"(el) {
+    const i = DB.invoices.find((x) => x.id === el.dataset.id);
+    const text = val("ic-text");
+    if (text.length < 2) return notice("bad", "Write something first.");
+    const fromGimi = S.identity.kind === "ADMIN";
+    i.comments.unshift({ when: TODAY, author: S.identity.name, fromGimi, text });
+    notice("ok", fromGimi
+      ? `Comment added. ${partnerName(i.partnerId)} can see it on the invoice.`
+      : "Comment added. The GIMI team can see it on this invoice.");
+  },
+
   "open-send"(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
     const attached = ATTACHMENTS.get(i.id);
@@ -2715,9 +3023,12 @@ const ACTIONS = {
   "open-report"(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
     S.modal = {
-      title: "Report a payment",
+      title: "Tell GIMI you have paid",
       body: `
-        <p class="count" style="margin-bottom:14px">Tell GIMI you have paid. They confirm once the funds arrive.</p>
+        <div class="notice notice-info" style="margin-bottom:16px">
+          This marks the invoice as paid on your side. GIMI confirms it once the funds arrive,
+          and the status changes again then.
+        </div>
         <label class="field"><span>Bank reference</span><input type="text" id="rp-ref" placeholder="TRF-00000"></label>
         <div class="grid-2">
           <label class="field"><span>Date paid</span><input type="date" id="rp-date" value="2026-07-29"></label>
@@ -2757,6 +3068,36 @@ const ACTIONS = {
   /* ---------------------------------------------------------- the lead page */
   "open-lead"(el) { S.leadPage = el.dataset.id; S.notice = null; },
   "close-lead"() { S.leadPage = null; S.notice = null; },
+
+  "open-my-submission"(el) { S.mySubmissionPage = el.dataset.id; S.notice = null; },
+  "close-my-submission"() { S.mySubmissionPage = null; S.notice = null; },
+
+  "csv-my-students"() {
+    const rows = myStudents();
+    if (rows.length === 0) return notice("bad", "No students to export.");
+    downloadCsv(
+      "our-students.csv",
+      ["First name", "Last name", "Email", "Certification", "Exam date", "Language", "Result"],
+      rows.map((x) => [x.first, x.last, x.email, x.cert, x.examDate, x.lang, STUDENT_STATUS[x.status]]),
+    );
+    notice("ok", `Exported ${rows.length} students.`);
+  },
+
+  "add-my-nomination"() {
+    const text = val("mn-text");
+    if (text.length < 5) return notice("bad", "Say what they did. GIMI reads this.");
+    const month = val("mn-month");
+    DB.nominations.push({
+      id: "n" + Date.now(),
+      month,
+      partnerId: val("mn-partner"),
+      byPartnerId: myId(),
+      text,
+      status: "PENDING",
+    });
+    S.open["my-nom"] = false;
+    notice("ok", `Nomination sent to GIMI for ${monthName(month)}.`);
+  },
 
   "add-lead-comment"(el) {
     const l = DB.leads.find((x) => x.id === el.dataset.id);
