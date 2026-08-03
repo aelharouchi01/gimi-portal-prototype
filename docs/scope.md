@@ -183,10 +183,23 @@ guessing a link. If those courses exist, the sheet needs updating and the link w
 Things the prototype currently guesses at, which a real build would need answered.
 
 1. **Partner activity.** GIMI tracks partners as Active, Semi active, Passive or New, which is
-   not the same as the portal's awaiting-approval / active / suspended. It is carried here as
-   an admin-only column. Should it be a real field?
+   not a portal state. It is carried as an admin-only managed column. Should it be a field?
 2. **Revenue targets.** No real figures exist. Left empty rather than invented.
-3. **Level 4 Audit, CIP, CCIO, Catalyst, IPA and Future Foresight 1 and 2** have no course
-   entry in the source sheet.
+3. **23 of the 29 certifications have no LMS course URL.** The product catalogue contains no
+   links at all. The six that are linked come from the LMS course sheet, where the mapping was
+   unambiguous. The rest render as plain text rather than guessing a URL, because a wrong link
+   in a client demo is worse than no link. GIMI needs to supply the missing 23.
 4. **Leads as a queue.** Currently a snapshot. If GIMI wants to track follow-up, that is
    activity history and a next-action date, which do not exist yet.
+
+## Agreed, not built yet
+
+In the order they were agreed, each belonging to the section named:
+
+1. **Overview** — overdue invoices flagged in Needs attention.
+2. **Students** — confirming a submission is the enrollment step, and the enrolled list with
+   statuses beside it.
+3. **Invoices** — a real invoice attachment the partner can download, not a filename.
+4. **Leads** — comments the partner receives about their own lead, and documents GIMI attaches
+   for the partner to pass on.
+5. **Recognition** — restructured. It currently reads as a pile of unrelated blocks.
