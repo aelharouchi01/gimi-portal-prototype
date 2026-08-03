@@ -55,15 +55,24 @@ percentages, per-person prices, or commercial terms.
 
 ## The data
 
-`real-data.js` holds **real** GIMI data: 32 partner companies with country, region and
-partner type, and the real 17-item certification taxonomy with links to courses and exams on
-`certifications.giminstitute.org`. Personal names and email addresses have been replaced
-with generic `portal@` addresses, and GIMI's internal activity assessment has been removed.
-Keep it that way.
+`real-data.js` holds **real** GIMI data, generated from GIMI's own documents: **24 partner
+companies** with the country each represents, region and partner type, and the **29
+certifications** from the product catalogue with their descriptions, what is included,
+skills, career outcomes, exam format and published prices. 25 of the 29 link to their live
+course on `certifications.giminstitute.org`; four have no course yet and render as plain
+text rather than a broken link.
+
+Personal names and email addresses are replaced with generic `portal@` addresses, and
+GIMI's internal activity assessment of each partner is removed. **Keep it that way**, and
+never let the demo's shape depend on a field that gets stripped: it did once, and the live
+site silently lost its queue and its partner directory.
 
 `data.js` invents students, invoices, leads, votes and forum posts, because no real figures
-for those exist. Revenue targets are deliberately left empty rather than invented, so nobody
-mistakes a made-up number for a real one.
+for those exist. Invoice figures are coherent with the catalogue: partner revenue is
+headcount times the certificate price, and the GIMI amount varies between rows rather than
+being a fixed proportion, which is the point. Only the demo partner has revenue and
+certification targets; the rest show "no target set" rather than an empty bar that reads as
+failure.
 
 A demo must never open empty. Land on populated data.
 
@@ -77,16 +86,16 @@ Both sides, every section. This is the agreed surface.
 account. A top bar switches between the two views so the prototype can be demoed without
 signing in and out.
 
-**Admin console, six tabs.** One tab per object, never per workflow. Pending work sits at the
+**Admin console, seven tabs.** One tab per object, never per workflow. Pending work sits at the
 top of the tab it belongs to.
 
 | Tab | Contains |
 |---|---|
 | Overview | A needs-attention list of sentences with action buttons, then KPI groups for Network, Delivery and Finances, then certifications by type |
-| Partners | Awaiting approval at the top, all partners with admin-only columns, `+ Add partner`, and a per-row workspace |
-| Students | Submissions to process, expandable to the full roster, then all students with result dropdowns |
-| Invoices | Revenue by partner, then all invoices with the lifecycle actions and a status legend |
-| Leads | Every lead across partners, new ones first, mark reviewed |
+| Partners | `+ Add partner`, then invitations not yet accepted, then all partners with managed admin-only columns. A name opens that partner's own page |
+| Students | Submissions to process, each opening its own page showing every person, then all students with filters and result dropdowns |
+| Invoices | `+ New invoice` with the file attached at creation, then a needs-a-decision band, then all invoices, then revenue by partner |
+| Leads | Waiting to be reviewed, then all leads. A name opens the lead's own page, where GIMI attaches documents for the partner |
 | Recognition | The monthly cycle: nominations, the poll, past winners, closed polls, then the partner ranking |
 | Settings | The Library documents partners can download, and the leaderboard switch |
 
@@ -99,8 +108,9 @@ go to work, so they do not earn a tab.
 
 **The onboarding chain, end to end.** Add a partner with a company name and an email. The
 invitation email appears on screen instead of being sent, with a button to open the link as
-the partner would. The partner sets a password and completes their organisation's details.
-They then appear as awaiting approval, and GIMI approves them.
+the partner would. The partner sets a password and completes their organisation's details,
+and that is what makes them active. **There is no approval step:** GIMI decided by choosing
+who to invite, so approving afterwards was a rubber stamp and it was removed.
 
 ---
 
@@ -128,8 +138,9 @@ missing an email address on purpose. The partner fixes it, not GIMI.
 **Internal notes are admin-only.** Custom partner columns, including GIMI's activity
 assessment, appear only in the admin console.
 
-**Accepting an invitation is not approval.** Completing the form leaves the partner awaiting
-approval. Approve does not appear until somebody has accepted.
+**There is no approval step.** A partner is "Invitation sent" until they complete their own
+details, then Active. Nothing for GIMI to click in between. Suspend and Reactivate are the
+only status actions, and partners are never deleted so students and invoices cannot orphan.
 
 **Feature flags gate whole sections.** The leaderboard is off by default, and when off the
 partner has no nav item at all, not an empty page.
@@ -148,19 +159,32 @@ July's award, decided in August, files under July.
 
 ## Brand
 
-From the GIMI Brand Identity Manual, page 15. **White background, black body text, always.**
-No dark mode. Colour belongs to chrome and section accents only, never to body copy or table
-text. Every colour is defined once in `:root` in `styles.css`; never write a hex code
-anywhere else.
+The design language comes from the **GIMI Store** (`gimi-landing.css` in that repo): the
+same palette, Calibri, 8 and 14 pixel radii, uppercase teal eyebrows, cards with a coloured
+top border, navy chrome with teal pills for the tabs.
+
+**Note this is the live GIMI site palette, not page 15 of the printed manual.** The two
+differ: the manual's teal is `#00858E`, the site's is `#2AACB5`. The store was aligned to
+the site, so the portal follows the store. If the printed manual ever becomes the authority,
+that is a deliberate decision to reverse.
 
 ```
-teal      #00858E   primary: buttons, active tabs, badges
-tealDeep  #355E71   headers, headings
-magenta   #A43C7C   status and attention
-orange    #DE8E3D   finance accents
-green     #B3CE52   delivery accents, success
-yellow    #EFCE46
+teal        #2AACB5   primary: buttons, active tabs, links
+teal-dark   #1E8A93   hover, headings on light
+teal-light  #E6F6F7   badge and chip backgrounds
+navy        #1B1F3B   header, nav, all headings
+yellow      #C9D940   delivery accents
+pink        #E15A78   attention, overdue, destructive
+orange      #F0871E   finance accents
 ```
+
+White page background, near-black body text. No dark mode. Colour belongs to chrome and
+accents, never to body copy or table text. Every colour is defined once in `:root` in
+`styles.css`; never write a hex code anywhere else.
+
+**Every section is a card**: a titled header strip, then its contents, inside one border.
+Use `section.block`. Use `block-plain` only when the contents are already cards, such as a
+row of KPIs.
 
 Logos: `gimi-logo.png` on white, `gimi-logo-white.png` on the dark teal header. Both are
 cropped to the artwork; there is no vector version.

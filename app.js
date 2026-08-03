@@ -76,6 +76,9 @@ const ATTACHMENTS = new Map();
  */
 const LEAD_FILES = new Map();
 
+/** Real files behind Library documents, keyed by document id. */
+const LIB_FILES = new Map();
+
 const money = (cents) =>
   cents === null || cents === undefined
     ? "—"
@@ -352,6 +355,7 @@ const ADMIN_TABS = [
   ["invoices", "Invoices"],
   ["leads", "Leads"],
   ["recognition", "Recognition"],
+  ["settings", "Settings"],
 ];
 
 function adminShell() {
@@ -372,6 +376,7 @@ function adminShell() {
         invoices: adminInvoices,
         leads: adminLeads,
         recognition: adminRecognition,
+        settings: adminSettings,
       }[S.adminTab]();
 
   return `
@@ -1657,18 +1662,7 @@ function adminRecognition() {
       </table></div>`}
   </section>
 
-  <section class="block">
-    <h2>Setting</h2>
-    <div class="toggle-row" style="margin-bottom:0">
-      <div>
-        <div class="lbl">Partner leaderboard</div>
-        <span class="sub">When off, partners have no leaderboard nav item and the route does not exist. It ranks people certified and shows no money.</span>
-      </div>
-      <button class="btn ${DB.settings.leaderboardEnabled ? "btn-danger" : ""} btn-sm" data-action="toggle-leaderboard">
-        ${DB.settings.leaderboardEnabled ? "Turn off" : "Turn on"}
-      </button>
-    </div>
-  </section>`;
+  <p></p>`;
 }
 
 function pollAdminCard(poll) {
@@ -1756,6 +1750,93 @@ function pollResults(poll) {
   <p class="count" style="margin-top:8px">Winner: <strong>${esc(partnerName(winner.partnerId))}</strong></p>`;
 }
 
+/* ---------------------------------------------------------- admin: settings */
+
+/**
+ * Everything that configures the portal rather than being work to do. Two things
+ * today: the documents partners can download, and the leaderboard switch.
+ *
+ * The Library lives here because GIMI needs somewhere to manage it and it is not a
+ * queue, a record or a report. It is configuration.
+ */
+function adminSettings() {
+  const groups = [...new Set(DB.library.map((d) => d.group))];
+
+  return `
+  <div class="page-head">
+    <h1>Settings</h1>
+    <p class="count">How the portal behaves, and what partners can download.</p>
+  </div>
+
+  <div class="adder">
+    <div class="adder-head">
+      <h2>Add a document to the Library</h2>
+      <button class="btn btn-sm" data-action="toggle-open" data-id="add-doc">
+        ${S.open["add-doc"] ? "Cancel" : "+ Add a document"}
+      </button>
+    </div>
+    ${S.open["add-doc"] ? `
+      <div class="adder-body">
+        <div class="grid-2">
+          <label class="field"><span>Title partners see</span>
+            <input type="text" id="ad-name" placeholder="Certified Foresight brochure"></label>
+          <label class="field"><span>Group</span>
+            <select id="ad-group">
+              ${groups.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join("")}
+              <option value="__new">Add a new group…</option>
+            </select></label>
+          <label class="field"><span>New group name, if you chose that</span>
+            <input type="text" id="ad-newgroup" placeholder="Foresight"></label>
+          <label class="field"><span>File</span>
+            <input type="file" id="ad-file">
+            <span class="hint">Partners download this exact file.</span></label>
+        </div>
+        <label class="field"><span>One line on what it is for</span>
+          <input type="text" id="ad-note" placeholder="Use this with a client who has never heard of foresight."></label>
+        <button class="btn btn-sm" data-action="add-doc">Add to the Library</button>
+      </div>` : ""}
+  </div>
+
+  ${groups.map((group) => {
+    const docs = DB.library.filter((d) => d.group === group);
+    return `
+    <section class="block">
+      <h2>Library · ${esc(group)} (${docs.length})</h2>
+      <div class="table-scroll"><table>
+        <thead><tr>
+          <th>Document</th><th>Format</th><th class="num">Size</th>
+          <th>Updated</th><th class="right">Actions</th>
+        </tr></thead>
+        <tbody>${docs.map((d) => `
+          <tr>
+            <td>${esc(d.name)}<span class="sub">${esc(d.note)}</span></td>
+            <td class="nowrap">${esc(d.kind)}</td>
+            <td class="num nowrap">${d.mb < 1 ? Math.round(d.mb * 1000) + " KB" : d.mb + " MB"}</td>
+            <td class="nowrap">${date(d.updated)}</td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm" data-action="download-doc" data-id="${d.id}">Download</button>
+              <button class="btn btn-danger btn-sm" data-action="remove-doc" data-id="${d.id}">Remove</button>
+            </div></td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>
+    </section>`;
+  }).join("")}
+
+  <section class="block">
+    <h2>Partner leaderboard</h2>
+    <div class="toggle-row" style="margin-bottom:0">
+      <div>
+        <div class="lbl">Show the leaderboard to partners</div>
+        <span class="sub">When off, partners have no leaderboard nav item and the route does not exist. It ranks people certified and shows no money.</span>
+      </div>
+      <button class="btn ${DB.settings.leaderboardEnabled ? "btn-danger" : ""} btn-sm" data-action="toggle-leaderboard">
+        ${DB.settings.leaderboardEnabled ? "Turn off" : "Turn on"}
+      </button>
+    </div>
+  </section>`;
+}
+
 /* ========================================================== partner shell */
 
 function partnerTabs() {
@@ -1769,7 +1850,8 @@ function partnerTabs() {
   ];
   // Feature flag gates the whole route: when off there is no nav item at all.
   if (DB.settings.leaderboardEnabled) tabs.push(["leaderboard", "Leaderboard"]);
-  tabs.push(["profile", "Profile"]);
+  // No Profile tab. Your own details are settings, not a destination, so they sit at
+  // the foot of the dashboard where you already are.
   return tabs;
 }
 
@@ -1791,7 +1873,6 @@ function partnerShell() {
     library: partnerLibrary,
     community: partnerCommunity,
     leaderboard: partnerLeaderboard,
-    profile: partnerProfile,
   }[S.partnerTab]();
 
   return `
@@ -1975,7 +2056,9 @@ function partnerDashboard() {
           </tr>`).join("")}
         </tbody>
       </table></div>`}
-  </section>`;
+  </section>
+
+  ${partnerAccountSections()}`;
 }
 
 function partnerStudents() {
@@ -2469,16 +2552,16 @@ function partnerLeaderboard() {
   </table></div>`;
 }
 
-function partnerProfile() {
+/**
+ * The partner's own account: their details, their directory choice and their logins.
+ * The foot of the dashboard rather than a tab of its own, because it is something you
+ * change occasionally, not somewhere you work.
+ */
+function partnerAccountSections() {
   const me = partner(myId());
   return `
-  <div class="page-head">
-    <h1>Profile</h1>
-    <p class="count">Your organisation's details, as GIMI sees them.</p>
-  </div>
-
   <section class="block">
-    <h2>Your organisation</h2>
+    <h2>Your organisation, as GIMI sees it</h2>
     <div class="grid-2" style="max-width:720px">
       <label class="field"><span>Company name</span><input type="text" value="${esc(me.name)}"></label>
       <label class="field"><span>Country</span><input type="text" value="${esc(me.country)}"></label>
@@ -2709,9 +2792,51 @@ const ACTIONS = {
     URL.revokeObjectURL(url);
     notice("ok", `Downloaded ${file.name}.`);
   },
+  "add-doc"() {
+    const name = val("ad-name");
+    if (name.length < 3) return notice("bad", "Give the document a title partners will understand.");
+    const file = $("#ad-file") && $("#ad-file").files[0];
+    if (!file) return notice("bad", "Choose a file. A Library entry with nothing behind it is worse than no entry.");
+
+    let group = val("ad-group");
+    if (group === "__new") {
+      group = val("ad-newgroup");
+      if (group.length < 3) return notice("bad", "Name the new group.");
+    }
+
+    const id = "d" + Date.now();
+    LIB_FILES.set(id, file);
+    DB.library.push({
+      id, group, name,
+      kind: file.name.split(".").pop().toUpperCase(),
+      pages: null,
+      mb: Math.round((file.size / 1048576) * 10) / 10,
+      updated: TODAY,
+      note: val("ad-note") || "",
+    });
+    S.open["add-doc"] = false;
+    notice("ok", `"${name}" added. Every partner can download it now.`);
+  },
+
+  "remove-doc"(el) {
+    const d = DB.library.find((x) => x.id === el.dataset.id);
+    DB.library = DB.library.filter((x) => x.id !== el.dataset.id);
+    LIB_FILES.delete(el.dataset.id);
+    notice("ok", `Removed "${d.name}". Partners can no longer download it.`);
+  },
+
   "download-doc"(el) {
     const d = DB.library.find((x) => x.id === el.dataset.id);
-    notice("info", `"${d.name}" is ${d.mb} MB and is not bundled with this prototype, so there is nothing to download yet. In the real portal this button fetches the file.`);
+    const file = LIB_FILES.get(d.id);
+    if (!file) {
+      return notice("info", `"${d.name}" is ${d.mb} MB and is not bundled with this prototype, so there is nothing to download yet. Add a document in Settings to see a real download.`);
+    }
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url; link.download = file.name;
+    document.body.appendChild(link); link.click(); link.remove();
+    URL.revokeObjectURL(url);
+    notice("ok", `Downloaded ${file.name}.`);
   },
 
   /* ------------------------------------------------------ partners: invite */
