@@ -23,20 +23,44 @@ const EXAM_FORMATS = [
 const slug = (name) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-/* Live LMS course pages, keyed by catalogue name.
-   The product catalogue contains no course URLs, so these come from the "Courses we
-   should use 2025-2026" sheet, which uses different names for the same products.
-   Only mappings that are unambiguous are listed. The other 23 certifications show as
-   plain text until GIMI supplies their URLs, because a wrong link in a client demo is
-   worse than no link. */
+/* Live LMS course pages, supplied by GIMI on 30 July 2026.
+   Four have no course yet and render as plain text rather than a broken link.
+   Two things worth knowing, both flagged back to GIMI:
+     - "Certified Leader for the Future" points at 475, the same course as
+       "Certified Innovation Leader". One of the two is probably wrong.
+     - "Certified GIMI Impact: Teachers" was given two courses, 363 and 364.
+       The first is used here. */
 const LMS = "https://certifications.giminstitute.org/course/view.php?id=";
 const LMS_LINKS = {
-  "Primer": LMS + "193",
-  "Certified Innovation Professional Level 1: Associate": LMS + "143",
-  "Certified Innovation Professional Level 2: Master": LMS + "133",
-  "Certified Chief Innovation Officer Level 3: Manager": LMS + "122",
-  "Certified Design Thinking: Level 1": LMS + "240",
+  "Primer": LMS + "474&section=6#tabs-tree-start",
+  "Certified Innovation Leader": LMS + "475",
+  "Certified Innovation Professional Level 0: Innovation Champion": LMS + "429",
+  "Problem Solving Certified Catalyst": LMS + "521",
+  "Certified Innovation Professional Level 1: Associate": LMS + "491",
+  "Certified Innovation Professional Level 2: Master": LMS + "352",
+  "Certified Chief Innovation Officer Level 3: Manager": LMS + "480",
+  "Certified Chief Innovation Officer Level 4: Leader": LMS + "354",
+  "Certified Foresight Professional: Level 1": LMS + "503",
+  "Certified Foresight Leader: Level 2": LMS + "217",
+  "Certified Foresight Officer: Level 3": LMS + "220",
+  // Certified Trainer In Future Foresight Level 1 — no course yet
+  // Certified Trainer In Future Foresight Level 2 — no course yet
+  "Certified Design Thinking: Level 1": LMS + "523",
   "Certified Design Thinking: Level 2": LMS + "263",
+  "Certified Design Thinking Trainer": LMS + "298",
+  "Certified ISO Innovation Management Expert": LMS + "508",
+  "Certified Technology Catalyst": LMS + "323",
+  "Certified Longevity Catalyst": LMS + "324",
+  "Certified GIMI Impact: Students": LMS + "366",
+  "Certified GIMI Impact: Teachers": LMS + "363",
+  "Certified GIMI Trainer": LMS + "303",
+  "Certified Leader for the Future": LMS + "475",
+  "Certified GIMI Auditor": LMS + "306",
+  "Certified Management Consulting Level 1: Analyst": LMS + "113",
+  "Certified Management Consulting Level 2: Consultant": LMS + "145",
+  // Certified Management Consulting Level 3: Manager — no course yet
+  // Certified Management Consulting Level 4: Leader — no course yet
+  "Certified AI Agent Practitioner": LMS + "537&section=4",
 };
 
 /* There is no approval step. GIMI decides who to invite; sending the invitation IS

@@ -40,6 +40,16 @@ const S = {
 
 const $ = (sel) => document.querySelector(sel);
 
+/**
+ * Real files attached to invoices, keyed by invoice id.
+ *
+ * Held in memory, not in DB, because a File is not data to be copied around: the
+ * partner downloads this exact object. It does not survive a refresh, which is true
+ * of everything in this prototype. Seeded invoices have a filename and no file
+ * behind it, and the download says so rather than pretending.
+ */
+const ATTACHMENTS = new Map();
+
 const money = (cents) =>
   cents === null || cents === undefined
     ? "—"
@@ -381,7 +391,7 @@ function adminOverview() {
   const certRows = Object.entries(byCert).sort((a, b) => b[1] - a[1]);
 
   return `
-  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+  <div class="page-head section-head">
     <h1>Overview</h1>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px">
       <span style="color:var(--muted)">Year</span>
@@ -433,9 +443,11 @@ function adminOverview() {
   ${gimiRevenueByPartner(invoices)}
 
   <section class="block">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px">
-      <h2 style="margin:0">Certifications by type</h2>
-      <button class="btn btn-ghost btn-sm" data-action="csv-certifications" ${certRows.length === 0 ? "disabled" : ""}>Download CSV</button>
+    <div class="section-head">
+      <h2>Certifications by type</h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" data-action="csv-certifications" ${certRows.length === 0 ? "disabled" : ""}>Download CSV</button>
+      </div>
     </div>
     <div class="table-scroll"><table>
       <thead><tr>
@@ -508,9 +520,11 @@ function gimiRevenueByPartner(invoices) {
 
   return `
   <section class="block">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px">
-      <h2 style="margin:0">GIMI revenue by partner</h2>
-      <button class="btn btn-ghost btn-sm" data-action="csv-revenue" ${rows.length === 0 ? "disabled" : ""}>Download CSV</button>
+    <div class="section-head">
+      <h2>GIMI revenue by partner</h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" data-action="csv-revenue" ${rows.length === 0 ? "disabled" : ""}>Download CSV</button>
+      </div>
     </div>
     ${rows.length === 0
       ? `<div class="empty">No invoices were issued in ${esc(S.year)}.</div>`
@@ -574,12 +588,12 @@ function adminPartners() {
     S.partnerSearch || S.partnerStatus !== "ALL" || S.partnerRegion !== "ALL";
 
   return `
-  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+  <div class="page-head section-head">
     <div>
       <h1>Partners</h1>
       <p class="count">Showing ${shown.length} of ${DB.partners.length}.</p>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="toolbar">
       <input type="text" id="partner-search" data-action="partner-search" placeholder="Search partners"
         value="${esc(S.partnerSearch)}" style="width:200px;padding:6px 9px">
       <select data-action="partner-status" style="width:auto;padding:6px 8px">
@@ -703,14 +717,14 @@ function partnerPage(id) {
     <button class="btn-link" data-action="close-partner">← All partners</button>
   </div>
 
-  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+  <div class="page-head section-head">
     <div>
       <h1>${esc(p.name)}</h1>
       <p class="count">
         ${esc(p.country)} · ${esc(p.region)} · ${esc(p.partnerType)} · ${partnerBadge(p.status)}
       </p>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="toolbar">
       <label style="display:flex;align-items:center;gap:8px;font-size:13px">
         <span style="color:var(--muted)">Year</span>
         <select data-action="set-year" style="width:auto;padding:5px 8px">
@@ -745,9 +759,11 @@ function partnerPage(id) {
 
   <div class="two-col">
     <section class="block">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
-        <h2 style="margin:0">Relationship</h2>
-        <button class="btn btn-ghost btn-sm" data-action="manage-columns">Manage columns</button>
+      <div class="section-head">
+        <h2>Relationship</h2>
+        <div class="toolbar">
+          <button class="btn btn-ghost btn-sm" data-action="manage-columns">Manage columns</button>
+        </div>
       </div>
       ${cols.map((c) => `
         <label class="field">
@@ -1080,14 +1096,24 @@ function invoiceForm() {
     <div class="grid-2">
       <label class="field"><span>Partner</span>
         <select id="ni-partner">${DB.partners.filter((p) => p.status === "ACTIVE").map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></label>
-      <label class="field"><span>Description</span><input type="text" id="ni-desc" placeholder="CIL cohort, September 2026"></label>
-      <label class="field"><span>Partner revenue</span><input type="text" id="ni-rev" placeholder="48000">
-        <span class="hint">What the partner charges its own client.</span></label>
-      <label class="field"><span>GIMI amount</span><input type="text" id="ni-gimi" placeholder="14400">
-        <span class="hint">What GIMI invoices them. Unrelated by formula.</span></label>
+      <label class="field"><span>Description</span><input type="text" id="ni-desc" placeholder="Level 1 Associate cohort, September 2026"></label>
+      <label class="field"><span>Certification</span>
+        <select id="ni-cert">${DB.catalogue.map((c) => `<option value="${esc(c.name)}">${esc(c.name)}${c.certPrice ? ` — ${esc(c.certPrice)}` : ""}</option>`).join("")}</select>
+        <span class="hint">Sets the catalogue price used as the guide below.</span></label>
       <label class="field"><span>People</span><input type="number" id="ni-count" value="1" min="1"></label>
+      <label class="field"><span>Partner revenue</span><input type="text" id="ni-rev" placeholder="6720">
+        <span class="hint">The full certificate value the partner billed its client.</span></label>
+      <label class="field"><span>GIMI amount</span><input type="text" id="ni-gimi" placeholder="4032">
+        <span class="hint">What GIMI invoices them. Typed in, never calculated.</span></label>
       <label class="field"><span>Due date</span><input type="date" id="ni-due" value="2026-09-30"></label>
+      <label class="field">
+        <span>Invoice PDF from QuickBooks</span>
+        <input type="file" id="ni-file" accept="application/pdf,image/*">
+        <span class="hint">Attached now. The partner downloads this exact file once it is sent.</span>
+      </label>
     </div>
+    <label class="field"><span>QuickBooks reference <span class="optional">(optional)</span></span>
+      <input type="text" id="ni-qb" placeholder="QB-1070" style="max-width:220px"></label>
     <button class="btn btn-sm" data-action="create-invoice">Create as draft</button>
     <span style="font-size:11.5px;color:var(--faint);margin-left:10px">Drafts are never visible to the partner.</span>
   </div>`;
@@ -2011,7 +2037,20 @@ const ACTIONS = {
   stub() { notice("info", "Not wired up in the prototype."); },
   download(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
-    notice("info", `${i.pdf} would download here.`);
+    const file = ATTACHMENTS.get(i.id);
+    if (!file) {
+      // Seeded invoices carry a filename but no real file behind it.
+      return notice("info", `${i.pdf} is a placeholder in this prototype. Attach a real file on a new invoice to see it download.`);
+    }
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    notice("ok", `Downloaded ${file.name}.`);
   },
   "download-doc"(el) {
     notice("info", `${DB.library.find((d) => d.id === el.dataset.id).name} would download here.`);
@@ -2195,27 +2234,43 @@ const ACTIONS = {
     const rev = centsFrom(val("ni-rev")), gimi = centsFrom(val("ni-gimi"));
     if (!val("ni-desc")) return notice("bad", "Give the invoice a description.");
     if (rev === null || gimi === null) return notice("bad", "Both figures must be numbers. They are unrelated to each other.");
+
+    const chosen = $("#ni-file")?.files?.[0] ?? null;
+    if (!chosen) return notice("bad", "Attach the invoice PDF. The partner needs a file to download.");
+
+    const id = "inv" + Date.now();
+    // The real file is kept in memory so the partner downloads the actual document
+    // rather than a filename. It does not survive a refresh; nothing here does.
+    ATTACHMENTS.set(id, chosen);
+
     DB.invoices.push({
-      id: "inv" + Date.now(), partnerId: val("ni-partner"), description: val("ni-desc"),
+      id, partnerId: val("ni-partner"), description: val("ni-desc"),
+      certification: val("ni-cert"),
       studentCount: Number(val("ni-count")) || 1, partnerRevenue: rev, gimiAmount: gimi,
-      status: "DRAFT", issuedAt: null, dueDate: val("ni-due"), pdf: null, qbRef: null, payment: null,
+      status: "DRAFT", issuedAt: null, dueDate: val("ni-due"),
+      pdf: chosen.name, qbRef: val("ni-qb") || null, payment: null,
     });
     S.open["add-invoice"] = false;
-    notice("ok", "Draft created. It is invisible to the partner until you send it.");
+    notice("ok", `Draft created with ${chosen.name} attached. Invisible to the partner until you send it.`);
   },
   "open-send"(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
+    const attached = ATTACHMENTS.get(i.id);
     S.modal = {
-      title: "Upload PDF and send",
+      title: "Send to partner",
       body: `
-        <p class="count" style="margin-bottom:14px">Invoices are authored in QuickBooks. Upload the PDF and confirm both figures.</p>
-        <label class="field"><span>PDF from QuickBooks</span><input type="text" id="sd-pdf" value="GIMI-2026-0${Math.floor(Math.random() * 90 + 10)}.pdf"></label>
-        <label class="field"><span>QuickBooks reference <span class="optional">(optional)</span></span><input type="text" id="sd-qb" placeholder="QB-1070"></label>
+        <label class="field">
+          <span>Attached invoice</span>
+          ${i.pdf
+            ? `<span style="font-size:13px">${esc(i.pdf)}${attached ? ` · ${Math.max(1, Math.round(attached.size / 1024))} KB` : " · placeholder, no file"}</span>`
+            : `<input type="file" id="sd-file" accept="application/pdf,image/*">`}
+        </label>
         <div class="grid-2">
           <label class="field"><span>Partner revenue</span><input type="text" id="sd-rev" value="${i.partnerRevenue ? Math.round(i.partnerRevenue / 100) : ""}"></label>
           <label class="field"><span>GIMI amount</span><input type="text" id="sd-gimi" value="${i.gimiAmount ? Math.round(i.gimiAmount / 100) : ""}"></label>
         </div>
-        <p class="count">Two independent figures. Both freeze once sent.</p>`,
+        <label class="field"><span>QuickBooks reference <span class="optional">(optional)</span></span>
+          <input type="text" id="sd-qb" value="${esc(i.qbRef || "")}"></label>`,
       foot: `<button class="btn btn-ghost btn-sm" data-action="close-modal">Cancel</button>
              <button class="btn btn-sm" data-action="send-invoice" data-id="${i.id}">Send to partner</button>`,
     };
@@ -2223,14 +2278,21 @@ const ACTIONS = {
   "send-invoice"(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
     const rev = centsFrom(val("sd-rev")), gimi = centsFrom(val("sd-gimi"));
-    if (!val("sd-pdf")) return notice("bad", "A draft cannot be sent without a PDF.");
+
+    // A late attachment, for a draft raised by confirming a submission rather than
+    // through the New invoice form.
+    const late = $("#sd-file")?.files?.[0] ?? null;
+    if (late) { ATTACHMENTS.set(i.id, late); i.pdf = late.name; }
+
+    if (!i.pdf) return notice("bad", "A draft cannot be sent without the invoice attached.");
     if (gimi === null || gimi === 0) return notice("bad", "A draft cannot be sent without a GIMI amount.");
     if (rev === null) return notice("bad", "Partner revenue must be a number.");
-    i.pdf = val("sd-pdf"); i.qbRef = val("sd-qb") || null;
+
+    i.qbRef = val("sd-qb") || null;
     i.partnerRevenue = rev; i.gimiAmount = gimi;
     i.status = "SENT"; i.issuedAt = "2026-07-29";
     S.modal = null;
-    notice("ok", `Sent. ${partnerName(i.partnerId)} is notified by email and can now see it.`);
+    notice("ok", `Sent. ${partnerName(i.partnerId)} is notified by email and can now download ${i.pdf}.`);
   },
   "open-report"(el) {
     const i = DB.invoices.find((x) => x.id === el.dataset.id);
