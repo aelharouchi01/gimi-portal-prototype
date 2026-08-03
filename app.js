@@ -129,6 +129,10 @@ const YEARS = [
   ].filter(Boolean)),
 ].sort().reverse();
 
+/* The prototype's "today". Fixed rather than the real date, so the seeded data keeps
+   telling the same story: two invoices are overdue and stay overdue. */
+const TODAY = "2026-07-30";
+
 const inYearOf = (iso, year) => typeof iso === "string" && iso.startsWith(year);
 
 const studentsIn = (year) => DB.students.filter((s) => inYearOf(s.examDate, year));
@@ -353,11 +357,18 @@ function adminOverview() {
   const unreviewedLeads = DB.leads.filter((l) => !l.reviewed);
   const drafts = DB.invoices.filter((i) => i.status === "DRAFT");
 
+  // Money late is the most urgent thing on the screen, so it leads.
+  const overdue = DB.invoices.filter(
+    (i) => (i.status === "SENT" || i.status === "PAYMENT_REPORTED") && i.dueDate < TODAY,
+  );
+  const overdueTotal = overdue.reduce((n, i) => n + i.gimiAmount, 0);
+
   const items = [];
-  if (subsPending.length) items.push([`${subsPending.length} submission${subsPending.length > 1 ? "s" : ""} waiting to be processed`, "students"]);
-  if (invitesOutstanding.length) items.push([`${invitesOutstanding.length} invitation${invitesOutstanding.length > 1 ? "s" : ""} not yet accepted`, "partners"]);
+  if (overdue.length) items.push([`${overdue.length} invoice${overdue.length > 1 ? "s" : ""} overdue, ${money(overdueTotal)} outstanding`, "invoices"]);
   if (reported.length) items.push([`${reported.length} reported payment${reported.length > 1 ? "s" : ""} to confirm`, "invoices"]);
+  if (subsPending.length) items.push([`${subsPending.length} submission${subsPending.length > 1 ? "s" : ""} waiting to be processed`, "students"]);
   if (drafts.length) items.push([`${drafts.length} draft invoice${drafts.length > 1 ? "s" : ""} not yet sent`, "invoices"]);
+  if (invitesOutstanding.length) items.push([`${invitesOutstanding.length} invitation${invitesOutstanding.length > 1 ? "s" : ""} not yet accepted`, "partners"]);
   if (unreviewedLeads.length) items.push([`${unreviewedLeads.length} new lead${unreviewedLeads.length > 1 ? "s" : ""} to review`, "leads"]);
 
   const statusList = items.length
@@ -636,7 +647,7 @@ function adminPartners() {
 
   ${awaiting.length ? `
     <section class="block">
-      <h2>Awaiting approval (${awaiting.length})</h2>
+      <h2>Invitation sent, not yet accepted (${awaiting.length})</h2>
       ${partnerTable(awaiting, cols)}
     </section>` : ""}
 
@@ -1015,19 +1026,86 @@ const missing = () => `<span style="color:var(--magenta)">missing</span>`;
 
 /* -------------------------------------------------------- admin: invoices */
 
+/** Rows for the invoice tables. Shared so the pending and full tables cannot drift. */
+function invoiceRows(rows) {
+  const overdue = (i) => i.status !== "PAID" && i.status !== "DRAFT" && i.dueDate < TODAY;
+  return rows.map((i) => `
+    <tr>
+      <td>${esc(partnerName(i.partnerId))}</td>
+      <td>${esc(i.description)}${i.pdf ? `<span class="sub">${esc(i.pdf)}${i.qbRef ? " · " + esc(i.qbRef) : ""}</span>` : `<span class="sub">No invoice attached</span>`}</td>
+      <td class="num">${i.studentCount}</td>
+      <td class="num">${money(i.partnerRevenue)}</td>
+      <td class="num">${money(i.gimiAmount)}</td>
+      <td>${invoiceBadge(i.status)}${i.payment ? `<span class="sub">${esc(i.payment.reference)}</span>` : ""}</td>
+      <td class="nowrap">${date(i.dueDate)}${overdue(i) ? `<span class="sub" style="color:var(--pink);font-weight:700">Overdue</span>` : ""}</td>
+      <td><div class="row-actions">
+        ${i.status === "DRAFT" ? `<button class="btn btn-sm" data-action="open-send" data-id="${i.id}">Send</button>` : ""}
+        ${i.status === "PAYMENT_REPORTED" ? `
+          <button class="btn btn-sm" data-action="confirm-payment" data-id="${i.id}">Funds received</button>
+          <button class="btn btn-danger btn-sm" data-action="reject-payment" data-id="${i.id}">Not received</button>` : ""}
+        ${i.status === "PAID" ? `<span style="font-size:11.5px;color:var(--faint)">Locked</span>` : ""}
+      </div></td>
+    </tr>`).join("");
+}
+
+const INVOICE_HEAD = `<thead><tr>
+  <th>Partner</th><th>Description</th><th class="num">People</th>
+  <th class="num">Partner revenue</th><th class="num">GIMI amount</th>
+  <th>Status</th><th>Due</th><th class="right">Actions</th>
+</tr></thead>`;
+
 function adminInvoices() {
   const byPartner = DB.partners.map((p) => {
     const rows = DB.invoices.filter((i) => i.partnerId === p.id && i.status !== "DRAFT");
     const invoiced = rows.reduce((n, i) => n + i.gimiAmount, 0);
     const received = rows.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
     return { p, revenue: rows.reduce((n, i) => n + i.partnerRevenue, 0), invoiced, received };
-  }).filter((r) => r.invoiced > 0);
+  }).filter((r) => r.invoiced > 0).sort((a, b) => b.invoiced - a.invoiced);
+
+  // The pending band: anything asking for a decision, most urgent first.
+  const overdue = DB.invoices.filter((i) => i.status === "SENT" || i.status === "PAYMENT_REPORTED")
+    .filter((i) => i.dueDate < TODAY);
+  const reported = DB.invoices.filter((i) => i.status === "PAYMENT_REPORTED");
+  const drafts = DB.invoices.filter((i) => i.status === "DRAFT");
+  const needsAction = [
+    ...reported,
+    ...drafts,
+    ...overdue.filter((i) => i.status !== "PAYMENT_REPORTED"),
+  ];
 
   return `
   <div class="page-head">
     <h1>Invoices</h1>
-    <p class="count">Showing ${DB.invoices.length} of ${DB.invoices.length}, including drafts.</p>
+    <p class="count">${DB.invoices.length} invoices, including drafts.</p>
   </div>
+
+  <div class="adder">
+    <div class="adder-head">
+      <h2>New invoice</h2>
+      <button class="btn btn-sm" data-action="toggle-open" data-id="add-invoice">
+        ${S.open["add-invoice"] ? "Cancel" : "+ New invoice"}
+      </button>
+    </div>
+    ${S.open["add-invoice"] ? invoiceForm() : ""}
+  </div>
+
+  <section class="block">
+    <h2>Needs a decision (${needsAction.length})</h2>
+    ${needsAction.length === 0
+      ? `<div class="empty">Nothing waiting. Every invoice is either paid or with the partner.</div>`
+      : `<div class="table-scroll"><table>${INVOICE_HEAD}<tbody>${invoiceRows(needsAction)}</tbody></table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>All invoices</h2>
+    <div class="table-scroll"><table>${INVOICE_HEAD}<tbody>${invoiceRows(DB.invoices)}</tbody></table></div>
+    <div class="legend">
+      <span>${invoiceBadge("DRAFT")} invisible to the partner</span>
+      <span>${invoiceBadge("SENT")} awaiting payment</span>
+      <span>${invoiceBadge("PAYMENT_REPORTED")} partner says paid</span>
+      <span>${invoiceBadge("PAID")} confirmed, no longer editable</span>
+    </div>
+  </section>
 
   <section class="block">
     <h2>Revenue by partner</h2>
@@ -1043,50 +1121,6 @@ function adminInvoices() {
         </tr>`).join("")}
       </tbody>
     </table></div>
-  </section>
-
-  <section class="block">
-    <div class="adder">
-      <div class="adder-head">
-        <h2>New invoice</h2>
-        <button class="btn btn-sm" data-action="toggle-open" data-id="add-invoice">
-          ${S.open["add-invoice"] ? "Cancel" : "+ New invoice"}
-        </button>
-      </div>
-      ${S.open["add-invoice"] ? invoiceForm() : ""}
-    </div>
-
-    <h2>All invoices</h2>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Partner</th><th>Description</th><th class="num">People</th><th class="num">Partner revenue</th><th class="num">GIMI amount</th><th>Status</th><th>Due</th><th class="right">Actions</th></tr></thead>
-      <tbody>${DB.invoices.map((i) => `
-        <tr>
-          <td>${esc(partnerName(i.partnerId))}</td>
-          <td>${esc(i.description)}${i.pdf ? `<span class="sub">${esc(i.pdf)}${i.qbRef ? " · " + esc(i.qbRef) : ""}</span>` : `<span class="sub">No PDF uploaded</span>`}</td>
-          <td class="num">${i.studentCount}</td>
-          <td class="num">${money(i.partnerRevenue)}</td>
-          <td class="num">${money(i.gimiAmount)}</td>
-          <td>${invoiceBadge(i.status)}${i.payment ? `<span class="sub">${esc(i.payment.reference)}</span>` : ""}</td>
-          <td class="nowrap">${date(i.dueDate)}</td>
-          <td><div class="row-actions">
-            ${i.status === "DRAFT" ? `<button class="btn btn-sm" data-action="open-send" data-id="${i.id}">Upload PDF and send</button>` : ""}
-            ${i.status === "PAYMENT_REPORTED" ? `
-              <button class="btn btn-sm" data-action="confirm-payment" data-id="${i.id}">Funds received</button>
-              <button class="btn btn-danger btn-sm" data-action="reject-payment" data-id="${i.id}">Not received</button>` : ""}
-            ${i.status === "PAID" ? `<span style="font-size:11.5px;color:var(--faint)">Locked</span>` : ""}
-          </div></td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>
-    <div class="legend">
-      <span>${invoiceBadge("DRAFT")} invisible to the partner</span>
-      <span>${invoiceBadge("SENT")} awaiting payment</span>
-      <span>${invoiceBadge("PAYMENT_REPORTED")} partner says paid</span>
-      <span>${invoiceBadge("PAID")} confirmed, no longer editable</span>
-    </div>
-    <p class="count" style="margin-top:10px">
-      Partner revenue and GIMI amount are typed in separately. There is no percentage between them.
-    </p>
   </section>`;
 }
 
@@ -1121,21 +1155,39 @@ function invoiceForm() {
 
 /* ----------------------------------------------------------- admin: leads */
 
+const LEAD_HEAD = `<thead><tr>
+  <th>Company</th><th>Partner</th><th>Stage</th><th>Probability</th><th>Met</th>
+  <th>Docs sent</th><th class="num">Expected</th><th>Close</th><th class="right">Actions</th>
+</tr></thead>`;
+
 function adminLeads() {
-  const sorted = [...DB.leads].sort((a, b) => Number(a.reviewed) - Number(b.reviewed));
-  const unreviewed = DB.leads.filter((l) => !l.reviewed).length;
+  const toReview = DB.leads.filter((l) => !l.reviewed);
 
   return `
   <div class="page-head">
     <h1>Leads</h1>
-    <p class="count">Showing ${DB.leads.length} of ${DB.leads.length}. ${unreviewed} not yet reviewed.</p>
+    <p class="count">${DB.leads.length} leads shared by partners.</p>
   </div>
-  <div class="table-scroll"><table>
-    <thead><tr><th>Company</th><th>Partner</th><th>Stage</th><th>Probability</th><th>Met</th><th>Docs sent</th><th class="num">Expected</th><th>Close</th><th class="right">Actions</th></tr></thead>
-    <tbody>${sorted.map((l) => `
+
+  <section class="block">
+    <h2>Waiting to be reviewed (${toReview.length})</h2>
+    ${toReview.length === 0
+      ? `<div class="empty">Every lead has been reviewed.</div>`
+      : `<div class="table-scroll"><table>${LEAD_HEAD}<tbody>${leadRows(toReview)}</tbody></table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>All leads</h2>
+    <div class="table-scroll"><table>${LEAD_HEAD}<tbody>${leadRows(DB.leads)}</tbody></table></div>
+  </section>`;
+}
+
+/** Shared by both lead tables so they cannot drift apart. */
+function leadRows(rows) {
+  return rows.map((l) => `
       <tr>
-        <td><button class="btn-link" data-action="toggle-open" data-id="lead-${l.id}">${esc(l.company)}</button>
-            <span class="sub">${esc(l.contact)}</span></td>
+        <td>${esc(l.company)}
+            <span class="sub">${esc(l.contact)}${l.supportNeeded ? ` · asked for: ${esc(l.supportNeeded)}` : ""}</span></td>
         <td>${esc(partnerName(l.partnerId))}</td>
         <td>${esc(LEAD_STAGE[l.stage])}</td>
         <td>${esc(l.probability)}</td>
@@ -1147,22 +1199,7 @@ function adminLeads() {
           ${l.reviewed ? badge("Reviewed", "badge-neutral") : `<button class="btn btn-sm" data-action="review-lead" data-id="${l.id}">Mark reviewed</button>`}
         </div></td>
       </tr>
-      ${S.open["lead-" + l.id] ? `
-        <tr class="detail-row"><td colspan="9">
-          <div class="two-col">
-            <div>
-              <h2 style="font-size:12px;color:var(--teal-deep);margin-bottom:6px">Products of interest</h2>
-              ${l.products.map((p) => `<span class="chip">${esc(p)}</span>`).join("")}
-            </div>
-            <div>
-              <h2 style="font-size:12px;color:var(--teal-deep);margin-bottom:6px">Support the partner asked for</h2>
-              <p style="font-size:13px">${esc(l.supportNeeded) || "Nothing recorded."}</p>
-              <p class="count" style="margin-top:6px">Website: ${esc(l.website || "—")}</p>
-            </div>
-          </div>
-        </td></tr>` : ""}`).join("")}
-    </tbody>
-  </table></div>`;
+      `).join("");
 }
 
 /* ----------------------------------------------------- admin: recognition */
@@ -1411,6 +1448,29 @@ function partnerDashboard() {
     <p class="count">Signed in as ${esc(S.identity.name)}.</p>
   </div>
 
+  ${openPoll ? `
+    <section class="block">
+      <h2>CTP of the Month vote</h2>
+      <div class="panel" style="padding:18px">
+        <h2 style="font-size:14px;color:var(--teal-deep)">${esc(openPoll.question)}</h2>
+        <p class="count" style="margin:4px 0 14px">
+          Recognising ${esc(monthName(openPoll.month))}. One vote per account.
+          ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
+        </p>
+        ${alreadyVoted ? `
+          <div class="notice notice-ok">Vote recorded. Results are published when the poll closes.</div>
+        ` : openPoll.options.map((o) => `
+          <div class="poll-option">
+            <div style="flex:1">${esc(o.label)}</div>
+            <button class="btn btn-sm" data-action="vote" data-poll="${openPoll.id}" data-id="${o.id}"
+              ${o.partnerId === myId() ? "disabled" : ""}>
+              ${o.partnerId === myId() ? "That's you" : "Vote"}
+            </button>
+          </div>`).join("")}
+        <p class="count">Partners are asked not to vote for themselves, and their own entry is not selectable.</p>
+      </div>
+    </section>` : ""}
+
   <section class="block">
     <div class="kpi-row">
       ${kpi("delivery", "Enrolled", students.length)}
@@ -1440,29 +1500,6 @@ function partnerDashboard() {
       </tbody>
     </table></div>
   </section>
-
-  ${openPoll ? `
-    <section class="block">
-      <h2>CTP of the Month vote</h2>
-      <div class="panel" style="padding:18px">
-        <h2 style="font-size:14px;color:var(--teal-deep)">${esc(openPoll.question)}</h2>
-        <p class="count" style="margin:4px 0 14px">
-          Recognising ${esc(monthName(openPoll.month))}. One vote per account.
-          ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
-        </p>
-        ${alreadyVoted ? `
-          <div class="notice notice-ok">Vote recorded. Results are published when the poll closes.</div>
-        ` : openPoll.options.map((o) => `
-          <div class="poll-option">
-            <div style="flex:1">${esc(o.label)}</div>
-            <button class="btn btn-sm" data-action="vote" data-poll="${openPoll.id}" data-id="${o.id}"
-              ${o.partnerId === myId() ? "disabled" : ""}>
-              ${o.partnerId === myId() ? "That's you" : "Vote"}
-            </button>
-          </div>`).join("")}
-        <p class="count">Partners are asked not to vote for themselves, and their own entry is not selectable.</p>
-      </div>
-    </section>` : ""}
 
   <section class="block">
     <h2>Nominations you submitted</h2>
@@ -1578,32 +1615,50 @@ function stagingArea() {
   </div>`;
 }
 
+const PARTNER_INVOICE_HEAD = `<thead><tr>
+  <th>Description</th><th class="num">People</th><th class="num">Your revenue</th>
+  <th class="num">GIMI amount</th><th>Status</th><th>Due</th><th class="right">Actions</th>
+</tr></thead>`;
+
+/** Shared by both partner invoice tables so they cannot drift apart. */
+function partnerInvoiceRows(rows) {
+  return rows.map((i) => `
+    <tr>
+      <td>${esc(i.description)}</td>
+      <td class="num">${i.studentCount}</td>
+      <td class="num">${money(i.partnerRevenue)}</td>
+      <td class="num">${money(i.gimiAmount)}</td>
+      <td>${invoiceBadge(i.status)}${i.payment ? `<span class="sub">${esc(i.payment.reference)}</span>` : ""}</td>
+      <td class="nowrap">${date(i.dueDate)}${i.status === "SENT" && i.dueDate < TODAY ? `<span class="sub" style="color:var(--pink);font-weight:700">Overdue</span>` : ""}</td>
+      <td><div class="row-actions">
+        ${i.pdf ? `<button class="btn btn-ghost btn-sm" data-action="download" data-id="${i.id}">Download invoice</button>` : ""}
+        ${i.status === "SENT" ? `<button class="btn btn-sm" data-action="open-report" data-id="${i.id}">Report payment</button>` : ""}
+      </div></td>
+    </tr>`).join("");
+}
+
 function partnerInvoices() {
   const rows = myInvoices();
+  const toPay = rows.filter((i) => i.status === "SENT");
   return `
   <div class="page-head">
     <h1>Invoices</h1>
-    <p class="count">Showing ${rows.length} of ${rows.length}.</p>
+    <p class="count">${rows.length} invoices from GIMI.</p>
   </div>
 
-  ${rows.length === 0 ? `<div class="empty">No invoices yet.</div>` : `
-    <div class="table-scroll"><table>
-      <thead><tr><th>Description</th><th class="num">People</th><th class="num">Your revenue</th><th class="num">GIMI amount</th><th>Status</th><th>Due</th><th class="right">Actions</th></tr></thead>
-      <tbody>${rows.map((i) => `
-        <tr>
-          <td>${esc(i.description)}</td>
-          <td class="num">${i.studentCount}</td>
-          <td class="num">${money(i.partnerRevenue)}</td>
-          <td class="num">${money(i.gimiAmount)}</td>
-          <td>${invoiceBadge(i.status)}${i.payment ? `<span class="sub">${esc(i.payment.reference)}</span>` : ""}</td>
-          <td class="nowrap">${date(i.dueDate)}</td>
-          <td><div class="row-actions">
-            ${i.pdf ? `<button class="btn btn-ghost btn-sm" data-action="download" data-id="${i.id}">Download PDF</button>` : ""}
-            ${i.status === "SENT" ? `<button class="btn btn-sm" data-action="open-report" data-id="${i.id}">Report payment</button>` : ""}
-          </div></td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>`}
+  <section class="block">
+    <h2>Awaiting your payment (${toPay.length})</h2>
+    ${toPay.length === 0
+      ? `<div class="empty">Nothing to pay. Every invoice is either settled or with GIMI.</div>`
+      : `<div class="table-scroll"><table>${PARTNER_INVOICE_HEAD}<tbody>${partnerInvoiceRows(toPay)}</tbody></table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>All invoices</h2>
+    ${rows.length === 0
+      ? `<div class="empty">No invoices yet.</div>`
+      : `<div class="table-scroll"><table>${PARTNER_INVOICE_HEAD}<tbody>${partnerInvoiceRows(rows)}</tbody></table></div>`}
+  </section>
 
   <section class="block" style="margin-top:24px">
     <h2>Where to pay</h2>

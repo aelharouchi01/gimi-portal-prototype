@@ -162,11 +162,38 @@ cropped to the artwork; there is no vector version.
 
 ---
 
+## Page order, on every screen
+
+The same three bands, top to bottom, on both sides of the portal. This is not a
+preference; it is how someone using the portal decides what to do.
+
+1. **New.** Anything that creates something: `+ Add partner`, `+ New invoice`,
+   `+ Enroll students`, `+ Add a lead`, a new poll. Always first, as a collapsed panel
+   opened by a button.
+2. **Pending, or waiting to be reviewed.** Anything asking for a decision: invitations
+   not yet accepted, submissions to process, reported payments to confirm, drafts not
+   sent, leads not reviewed, nominations to judge. Directly under the new band.
+3. **Information.** Everything else: the full tables, history, rankings, reference
+   lists, totals. Always last.
+
+A screen with nothing pending simply has no middle band. A screen where nothing is
+created has no first band. The order of what remains does not change.
+
+## Interaction patterns
+
+Four, and only four, so nobody has to work out what a thing is:
+
+| Intent | Pattern |
+|---|---|
+| Drill into one record | A full page with a back link. Never a row that expands |
+| Do something | A modal with a title bar, Cancel, and one primary button |
+| Add something | A panel that opens inside its own section |
+| Filter something | A toolbar in the section header, always top right |
+
 ## Conventions
 
-- Every add action is a collapsed form inside the section it belongs to, opened by a button.
-  Never its own tab.
-- Sections lead with records. Forms come second.
+- Every add action is a collapsed form inside the section it belongs to, opened by a
+  button. Never its own tab.
 - Every list shows a "showing X of Y" count.
 - Any table wider than about eight columns scrolls horizontally rather than squashing.
 - Empty states distinguish "nothing yet" from "nothing matches your filters".

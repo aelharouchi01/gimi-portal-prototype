@@ -309,7 +309,9 @@ invoiceSeed.forEach(([description, count, rev, gimi, status, ref, year], n) => {
     description, studentCount: count,
     partnerRevenue: rev, gimiAmount: gimi, status,
     issuedAt: status === "DRAFT" ? null : `${year}-0${(n % 9) + 1}-20`,
-    dueDate: `${year}-1${n % 2}-15`,
+    // Two of the 2026 invoices fall before the prototype's today (30 July 2026),
+    // so "overdue" is a state you can actually see rather than a rule with no example.
+    dueDate: n === 3 ? "2026-06-15" : n === 4 ? "2026-07-10" : `${year}-1${n % 2}-15`,
     pdf: status === "DRAFT" ? null : `GIMI-${year}-0${20 + n}.pdf`,
     qbRef: status === "DRAFT" ? null : `QB-10${40 + n}`,
     payment: ref ? { reference: ref, paidOn: `${year}-1${n % 2}-10`, method: "Bank transfer" } : null,
