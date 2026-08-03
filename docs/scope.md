@@ -40,29 +40,53 @@ division by zero and shows a dash rather than 0%.
 
 ### Partners
 
-Awaiting approval at the top, then all partners.
+**There is no approval step.** GIMI decides who joins by choosing who to invite, so a second
+approval afterwards is a rubber stamp. The states are:
 
-Columns: partner, status, country, region, partner type, logins, revenue target, then the
-admin-only columns, then actions.
+```
+Invitation sent ──(partner completes their own details)──▶ Active
+Active ──(GIMI withdraws access)──▶ Suspended ──▶ Active
+```
 
-Row actions depend on state:
+**Invitation sent** partners sit in their own section at the top, showing the address it went
+to, when it was sent, and when the link expires. The only action is **Resend invite**, which
+invalidates the previous link. They move into the main table by themselves, the moment they
+finish filling in their details. Nothing for GIMI to click.
 
-- **Approve** appears only when the partner is awaiting approval **and** somebody has
-  completed the invitation. Approving an organisation with nobody able to sign in is
-  meaningless.
-- **Resend invite** appears while an invitation is outstanding. Resending invalidates the
-  previous link.
-- **Suspend** on an active partner, **Reactivate** on a suspended one. Partners are never
-  deleted, so students and invoices cannot orphan.
+**Suspend** and **Reactivate** are the only status actions. Partners are never deleted, so
+students and invoices cannot orphan.
 
-`+ Add partner` is a collapsed form inside this section. It takes a company name and an email
-address, and nothing else: the partner fills in the rest.
+`+ Add partner` takes a company name and an email address, and nothing else: the partner
+fills in the rest.
 
-Clicking a partner name opens a **workspace** in place, containing their figures, the
-admin-only notes, their invoices and their leads, and a scoped `+ New invoice`.
+Search covers name, country, region, partner type and login email. Filters for status and
+region. `Download CSV` honours the current filters and includes the admin-only columns.
 
-**Never shows:** nothing here reaches a partner. The admin-only columns, including GIMI's
-activity assessment of each partner, exist only on this screen.
+**Managed columns.** The admin columns on this table are added, renamed and removed from
+**Manage columns**. Seeded with Last met, Next steps and Internal note, but none of them are
+special: they are ordinary columns. Removing one warns how many partners have something
+written in it, because removing it deletes that too.
+
+**Never shows:** nothing on this screen reaches a partner. The managed columns and everything
+written in them, including GIMI's activity assessment, are admin-only.
+
+### The partner page
+
+Clicking a partner name opens **their own page**, replacing the table rather than expanding a
+row, so one partner is on screen at a time. A back link returns to the list. It has a year
+filter of its own.
+
+| Block | Contains |
+|---|---|
+| Header | Name, country, region, partner type, status, `+ New invoice`, Suspend or Reactivate |
+| Delivery | Asked to enroll, enrolled, certified, pass rate |
+| Finances | GIMI invoiced, received, outstanding |
+| Relationship | Every managed column, editable in place, plus `Manage columns` |
+| Comments | A running internal log. Anyone at GIMI can add one; partners never see them |
+| Enrollment submissions | Every submission with its status, and a jump to Students for pending ones |
+| Invoices | Every invoice including drafts, with both money figures and status |
+| Leads | Every lead with its qualification fields and whether GIMI has reviewed it |
+| Logins | Who can sign in, and when they last did |
 
 ### Students
 

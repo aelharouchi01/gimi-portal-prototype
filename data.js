@@ -23,28 +23,43 @@ const EXAM_FORMATS = [
 const slug = (name) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-/* Every real partner is ACTIVE. "New partner" in GIMI's sheet is how engaged they
-   are, not whether they have finished portal onboarding, so it must not become a
-   portal status. Two invented partners below carry the awaiting-approval states, so
-   no real company is shown as unapproved and the flow still demonstrates.
+/* Live LMS course pages, keyed by catalogue name.
+   The product catalogue contains no course URLs, so these come from the "Courses we
+   should use 2025-2026" sheet, which uses different names for the same products.
+   Only mappings that are unambiguous are listed. The other 23 certifications show as
+   plain text until GIMI supplies their URLs, because a wrong link in a client demo is
+   worse than no link. */
+const LMS = "https://certifications.giminstitute.org/course/view.php?id=";
+const LMS_LINKS = {
+  "Primer": LMS + "193",
+  "Certified Innovation Professional Level 1: Associate": LMS + "143",
+  "Certified Innovation Professional Level 2: Master": LMS + "133",
+  "Certified Chief Innovation Officer Level 3: Manager": LMS + "122",
+  "Certified Design Thinking: Level 1": LMS + "240",
+  "Certified Design Thinking: Level 2": LMS + "263",
+};
 
-   Nothing about the demo's shape may depend on `activity`, because that field is
-   stripped from the published build. It used to drive status and directory
-   visibility, which silently emptied the approval queue and the partner directory
-   on the live site. */
-const DEMO_PENDING = [
+/* There is no approval step. GIMI decides who to invite; sending the invitation IS
+   the decision. A partner is INVITED until they complete their own details, at which
+   point they are ACTIVE and appear in the main table. Nothing to approve afterwards.
+
+   Every real partner is ACTIVE. "New partner" in GIMI's sheet is how engaged they
+   are, not a portal state, so it must never become one. Two invented partners carry
+   the invited state, so no real company is published as not-yet-joined.
+
+   Nothing about the demo's shape may depend on `activity`: that field is stripped
+   from the published build, and when the shape depended on it the live site silently
+   lost its queue and its partner directory. */
+const DEMO_INVITED = [
   {
     name: "Andes Example Institute", country: "Chile", region: "South America",
-    type: "Training Partner", contactName: "Camila Rojas",
-    contacts: ["portal@example-institute.cl"],
-    // Accepted their invitation, so an admin can approve them.
-    accepted: true, inviteEmail: null,
+    type: "Training Partner", inviteEmail: "director@example-institute.cl",
+    sentAt: "2026-07-24", expiresAt: "2026-07-31",
   },
   {
     name: "Baltic Example Forum", country: "Estonia", region: "Europe",
-    type: "Training Partner", contactName: "", contacts: [],
-    // Invited and never completed it, so Approve must not appear at all.
-    accepted: false, inviteEmail: "director@example-forum.ee",
+    type: "Training Partner", inviteEmail: "director@example-forum.ee",
+    sentAt: "2026-07-26", expiresAt: "2026-08-02",
   },
 ];
 
@@ -53,12 +68,18 @@ const DEMO_PENDING = [
 const DB = {
   settings: { leaderboardEnabled: false },
 
-  /* Admin-only columns. The activity assessment only appears when the data holds
-     it, so the published build shows one column rather than 24 empty dashes. */
+  /* Admin-only columns, all of them managed from the Partners tab: add, rename and
+     remove. "Last met" and "Next steps" are seeded because GIMI asked for them, but
+     they are ordinary columns with no special handling, which is the point. The
+     activity assessment only appears when the data holds it, so the published build
+     shows no empty column. */
   customColumns: [
     ...(REAL_PARTNERS.some((r) => r.activity) ? [{ id: 1, name: "Activity", position: 1 }] : []),
-    { id: 2, name: "Internal note", position: 2 },
+    { id: 2, name: "Last met", position: 2 },
+    { id: 3, name: "Next steps", position: 3 },
+    { id: 4, name: "Internal note", position: 4 },
   ],
+  nextColumnId: 5,
 
   partners: [
     ...REAL_PARTNERS.map((r, index) => ({
@@ -87,36 +108,41 @@ const DB = {
         email,
         lastLogin: index % 4 === 3 ? null : `2026-0${(index % 7) + 1}-1${index % 9}`,
       })),
-      notes: { 1: r.activity, 2: "" },
+      notes: {
+        1: r.activity,
+        2: `2026-0${(index % 6) + 1}-1${index % 9}`,
+        3: index % 4 === 0 ? "Send Q4 cohort pricing" : index % 4 === 1 ? "Follow up on renewal" : "",
+        4: "",
+      },
+      comments: index % 5 === 0
+        ? [{ when: "2026-06-18", author: "GIMI Admin", text: "Strong delivery this quarter. Asked for co-branded material for the next cohort." }]
+        : [],
     })),
-    ...DEMO_PENDING.map((d, n) => ({
-      id: "demo" + (n + 1),
+    ...DEMO_INVITED.map((d, n) => ({
+      id: "invited" + (n + 1),
       name: d.name,
       country: d.country,
       region: d.region,
       partnerType: d.type,
-      status: "PENDING",
+      status: "INVITED",
       website: "", linkedin: "", phone: "",
       expectedRevenue: null,
       visibleInDirectory: false,
-      createdAt: "2026-07-2" + (5 + n),
+      createdAt: d.sentAt,
       approvedAt: null,
-      users: d.accepted
-        ? d.contacts.map((email) => ({ name: d.contactName, email, lastLogin: null }))
-        : [],
-      notes: { 1: "", 2: "" },
+      users: [], // Nobody until they complete their own details.
+      notes: { 1: "", 2: "", 3: "", 4: "" },
+      comments: [],
     })),
   ],
 
-  invites: DEMO_PENDING
-    .filter((d) => d.inviteEmail)
-    .map((d, n) => ({
-      id: "i" + (n + 1),
-      partnerId: "demo" + (DEMO_PENDING.indexOf(d) + 1),
-      email: d.inviteEmail,
-      sentAt: "2026-07-26",
-      expiresAt: "2026-08-02",
-    })),
+  invites: DEMO_INVITED.map((d, n) => ({
+    id: "i" + (n + 1),
+    partnerId: "invited" + (n + 1),
+    email: d.inviteEmail,
+    sentAt: d.sentAt,
+    expiresAt: d.expiresAt,
+  })),
   students: [],
   submissions: [],
   invoices: [],
@@ -129,7 +155,7 @@ const DB = {
      29 certifications with descriptions, what is included, skills, career
      outcomes, exam format and published prices. Partners browse this in the
      Library to see what they can sell and deliver. */
-  catalogue: CATALOGUE,
+  catalogue: CATALOGUE.map((c) => ({ ...c, lmsLink: LMS_LINKS[c.name] ?? null })),
 
   library: [
     { id: "d1", name: "GIMI certification overview", kind: "Deck", updated: "2026-06-02" },

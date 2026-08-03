@@ -29,6 +29,9 @@ const S = {
   partnerStatus: "ALL",
   partnerRegion: "ALL",
 
+  // Id of the partner whose own page is open, or null for the list.
+  partnerPage: null,
+
   // Element to refocus after a re-render, so typing in a search box survives it.
   focus: null,
 };
@@ -63,8 +66,12 @@ const esc = (s) =>
 const partner = (id) => DB.partners.find((p) => p.id === id);
 const partnerName = (id) => partner(id)?.name ?? "Unknown partner";
 
+/**
+ * There is no approval step. Sending the invitation is the decision, so a partner is
+ * INVITED until they complete their own details and then simply ACTIVE.
+ */
 const PARTNER_STATUS = {
-  PENDING: ["Awaiting approval", "badge-pending"],
+  INVITED: ["Invitation sent", "badge-pending"],
   ACTIVE: ["Active", "badge-active"],
   SUSPENDED: ["Suspended", "badge-suspended"],
 };
@@ -83,6 +90,7 @@ const STUDENT_STATUS = {
   FAILED: "Failed",
 };
 
+const SUBMISSION_STATUS = { PENDING: "Awaiting GIMI", PROCESSED: "Enrolled", REJECTED: "Rejected" };
 const LEAD_STAGE = { NEW: "New", QUALIFIED: "Qualified", IN_DISCUSSION: "In discussion", CLOSED: "Closed" };
 const MET_STATUS = { NOT_YET: "Not yet met", INTRO_CALL: "Intro call", MET_IN_PERSON: "Met in person" };
 const DOCS_SENT = { NOTHING: "Nothing", OVERVIEW: "Overview", PROPOSAL: "Proposal", PRICING: "Pricing" };
@@ -296,14 +304,18 @@ const ADMIN_TABS = [
 ];
 
 function adminShell() {
-  const body = {
-    overview: adminOverview,
-    partners: adminPartners,
-    students: adminStudents,
-    invoices: adminInvoices,
-    leads: adminLeads,
-    recognition: adminRecognition,
-  }[S.adminTab]();
+  // A selected partner takes over the whole area rather than expanding a row, so one
+  // partner is on screen at a time instead of the table growing under your cursor.
+  const body = S.partnerPage
+    ? partnerPage(S.partnerPage)
+    : {
+        overview: adminOverview,
+        partners: adminPartners,
+        students: adminStudents,
+        invoices: adminInvoices,
+        leads: adminLeads,
+        recognition: adminRecognition,
+      }[S.adminTab]();
 
   return `
   <header class="app-header">
@@ -326,14 +338,14 @@ function adminShell() {
 
 function adminOverview() {
   const subsPending = DB.submissions.filter((s) => s.status === "PENDING");
-  const partnersPending = DB.partners.filter((p) => p.status === "PENDING" && p.users.length > 0);
+  const invitesOutstanding = DB.partners.filter((p) => p.status === "INVITED");
   const reported = DB.invoices.filter((i) => i.status === "PAYMENT_REPORTED");
   const unreviewedLeads = DB.leads.filter((l) => !l.reviewed);
   const drafts = DB.invoices.filter((i) => i.status === "DRAFT");
 
   const items = [];
   if (subsPending.length) items.push([`${subsPending.length} submission${subsPending.length > 1 ? "s" : ""} waiting to be processed`, "students"]);
-  if (partnersPending.length) items.push([`${partnersPending.length} partner${partnersPending.length > 1 ? "s" : ""} waiting for approval`, "partners"]);
+  if (invitesOutstanding.length) items.push([`${invitesOutstanding.length} invitation${invitesOutstanding.length > 1 ? "s" : ""} not yet accepted`, "partners"]);
   if (reported.length) items.push([`${reported.length} reported payment${reported.length > 1 ? "s" : ""} to confirm`, "invoices"]);
   if (drafts.length) items.push([`${drafts.length} draft invoice${drafts.length > 1 ? "s" : ""} not yet sent`, "invoices"]);
   if (unreviewedLeads.length) items.push([`${unreviewedLeads.length} new lead${unreviewedLeads.length > 1 ? "s" : ""} to review`, "leads"]);
@@ -427,16 +439,21 @@ function adminOverview() {
     </div>
     <div class="table-scroll"><table>
       <thead><tr>
-        <th>Certification</th><th class="num">Students</th><th class="num">Share</th>
+        <th>Certification</th><th>Group</th><th class="num">Students</th><th class="num">Share</th>
       </tr></thead>
-      <tbody>${certRows.length === 0
-        ? `<tr><td colspan="3"><div class="empty" style="border:0;padding:18px">No students with an exam date in ${esc(S.year)}.</div></td></tr>`
-        : certRows.map(([cert, n]) => `
-        <tr>
-          <td>${esc(cert)}</td>
-          <td class="num">${n}</td>
-          <td class="num">${Math.round((n / students.length) * 100)}%</td>
-        </tr>`).join("")}
+      <tbody>${DB.catalogue.map((c) => {
+        const n = byCert[c.name] ?? 0;
+        const pct = students.length ? Math.round((n / students.length) * 100) : 0;
+        return `
+        <tr${n === 0 ? ' style="color:var(--faint)"' : ""}>
+          <td>${c.lmsLink
+            ? `<a href="${esc(c.lmsLink)}" target="_blank" rel="noopener">${esc(c.name)}</a>`
+            : esc(c.name)}</td>
+          <td>${esc(c.group)}</td>
+          <td class="num">${n || "—"}</td>
+          <td class="num">${n ? pct + "%" : "—"}</td>
+        </tr>`;
+      }).join("")}
       </tbody>
     </table></div>
   </section>`;
@@ -549,8 +566,8 @@ function filteredPartners() {
 
 function adminPartners() {
   const shown = filteredPartners();
-  const awaiting = shown.filter((p) => p.status === "PENDING");
-  const rest = shown.filter((p) => p.status !== "PENDING");
+  const awaiting = shown.filter((p) => p.status === "INVITED");
+  const rest = shown.filter((p) => p.status !== "INVITED");
   const cols = DB.customColumns;
   const regions = [...new Set(DB.partners.map((p) => p.region))].sort();
   const filtering =
@@ -568,7 +585,7 @@ function adminPartners() {
       <select data-action="partner-status" style="width:auto;padding:6px 8px">
         <option value="ALL" ${S.partnerStatus === "ALL" ? "selected" : ""}>All statuses</option>
         <option value="ACTIVE" ${S.partnerStatus === "ACTIVE" ? "selected" : ""}>Active</option>
-        <option value="PENDING" ${S.partnerStatus === "PENDING" ? "selected" : ""}>Awaiting approval</option>
+        <option value="INVITED" ${S.partnerStatus === "INVITED" ? "selected" : ""}>Invitation sent</option>
         <option value="SUSPENDED" ${S.partnerStatus === "SUSPENDED" ? "selected" : ""}>Suspended</option>
       </select>
       <select data-action="partner-region" style="width:auto;padding:6px 8px">
@@ -634,8 +651,8 @@ function partnerTable(rows, cols) {
         return `
         <tr>
           <td>
-            <button class="btn-link" data-action="toggle-open" data-id="pw-${p.id}">${esc(p.name)}</button>
-            ${invite ? `<span class="sub">Invited ${esc(invite.email)}, expires ${date(invite.expiresAt)}</span>` : ""}
+            <button class="btn-link" data-action="open-partner" data-id="${p.id}">${esc(p.name)}</button>
+            ${invite ? `<span class="sub">Sent to ${esc(invite.email)} on ${date(invite.sentAt)}, expires ${date(invite.expiresAt)}</span>` : ""}
           </td>
           <td>${partnerBadge(p.status)}</td>
           <td>${esc(p.country || "—")}</td>
@@ -646,17 +663,182 @@ function partnerTable(rows, cols) {
           ${cols.map((c) => `<td>${esc(p.notes[c.id] || "—")}</td>`).join("")}
           <td>
             <div class="row-actions">
-              ${p.status === "PENDING" && p.users.length > 0 ? `<button class="btn btn-sm" data-action="approve-partner" data-id="${p.id}">Approve</button>` : ""}
               ${invite ? `<button class="btn btn-ghost btn-sm" data-action="resend-invite" data-id="${p.id}">Resend invite</button>` : ""}
               ${p.status === "ACTIVE" ? `<button class="btn btn-danger btn-sm" data-action="suspend" data-id="${p.id}">Suspend</button>` : ""}
               ${p.status === "SUSPENDED" ? `<button class="btn btn-ghost btn-sm" data-action="reactivate" data-id="${p.id}">Reactivate</button>` : ""}
             </div>
           </td>
-        </tr>
-        ${S.open[`pw-${p.id}`] ? partnerWorkspace(p, cols) : ""}`;
+        </tr>`;
       }).join("")}
     </tbody>
   </table></div>`;
+}
+
+/**
+ * One partner, on their own page. Opened from the Partners table and closed back to
+ * it, so the table never grows under the cursor and only one partner is ever on
+ * screen.
+ *
+ * Everything here is year-filtered except the managed columns and the comments,
+ * which describe the relationship rather than a period.
+ */
+function partnerPage(id) {
+  const p = partner(id);
+  if (!p) { S.partnerPage = null; return adminPartners(); }
+
+  const cols = DB.customColumns;
+
+  const subs = DB.submissions.filter((s) => s.partnerId === id && inYearOf(s.submittedAt, S.year));
+  const students = DB.students.filter((s) => s.partnerId === id && inYearOf(s.examDate, S.year));
+  const invoices = DB.invoices.filter((i) => i.partnerId === id && (i.status === "DRAFT" || inYearOf(i.issuedAt, S.year)));
+  const leads = DB.leads.filter((l) => l.partnerId === id && inYearOf(l.submittedAt, S.year));
+
+  const issued = invoices.filter((i) => i.status !== "DRAFT");
+  const invoiced = issued.reduce((n, i) => n + i.gimiAmount, 0);
+  const received = issued.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
+  const requested = subs.reduce((n, s) => n + s.roster.length, 0);
+
+  return `
+  <div style="margin-bottom:18px">
+    <button class="btn-link" data-action="close-partner">← All partners</button>
+  </div>
+
+  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+    <div>
+      <h1>${esc(p.name)}</h1>
+      <p class="count">
+        ${esc(p.country)} · ${esc(p.region)} · ${esc(p.partnerType)} · ${partnerBadge(p.status)}
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <span style="color:var(--muted)">Year</span>
+        <select data-action="set-year" style="width:auto;padding:5px 8px">
+          ${YEARS.map((y) => `<option value="${y}" ${S.year === y ? "selected" : ""}>${y}</option>`).join("")}
+        </select>
+      </label>
+      <button class="btn btn-sm" data-action="new-invoice" data-id="${id}">+ New invoice</button>
+      ${p.status === "ACTIVE" ? `<button class="btn btn-danger btn-sm" data-action="suspend" data-id="${id}">Suspend</button>` : ""}
+      ${p.status === "SUSPENDED" ? `<button class="btn btn-ghost btn-sm" data-action="reactivate" data-id="${id}">Reactivate</button>` : ""}
+    </div>
+  </div>
+
+  <section class="block">
+    <div class="kpi-group">
+      <h3>Delivery</h3>
+      <div class="kpi-row">
+        ${kpi("delivery", "Asked to enroll", requested, `People this partner submitted for enrollment in ${S.year}.`)}
+        ${kpi("delivery", "Enrolled", students.length, `Students with an exam date in ${S.year}.`)}
+        ${kpi("delivery", "Certified", students.filter((s) => s.status === "PASSED").length, "Students who passed.")}
+        ${kpi("delivery", "Pass rate", passRate(students), "Passed divided by passed plus failed.")}
+      </div>
+    </div>
+    <div class="kpi-group">
+      <h3>Finances</h3>
+      <div class="kpi-row">
+        ${kpi("finance", "GIMI invoiced", money(invoiced), "Drafts excluded.")}
+        ${kpi("finance", "GIMI received", money(received), "Confirmed paid.")}
+        ${kpi("finance", "Outstanding", money(invoiced - received), "Invoiced minus received.")}
+      </div>
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="block">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <h2 style="margin:0">Relationship</h2>
+        <button class="btn btn-ghost btn-sm" data-action="manage-columns">Manage columns</button>
+      </div>
+      ${cols.map((c) => `
+        <label class="field">
+          <span>${esc(c.name)}</span>
+          <input type="text" value="${esc(p.notes[c.id] || "")}" data-note="${id}:${c.id}">
+        </label>`).join("")}
+    </section>
+
+    <section class="block">
+      <h2>Comments</h2>
+      <label class="field">
+        <textarea id="pc-text" placeholder="Anything worth recording about this partner"></textarea>
+      </label>
+      <button class="btn btn-sm" data-action="add-partner-comment">Add comment</button>
+      <div style="margin-top:14px">
+        ${p.comments.length === 0
+          ? `<div class="empty" style="padding:18px">Nothing recorded yet.</div>`
+          : p.comments.map((c) => `
+            <div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;margin-bottom:8px">
+              <p style="font-size:11.5px;color:var(--faint);margin-bottom:4px">${esc(c.author)} · ${date(c.when)}</p>
+              <p style="font-size:13px">${esc(c.text)}</p>
+            </div>`).join("")}
+      </div>
+    </section>
+  </div>
+
+  <section class="block">
+    <h2>Enrollment submissions (${subs.length})</h2>
+    ${subs.length === 0 ? `<div class="empty">Nothing submitted in ${esc(S.year)}.</div>` : `
+      <div class="table-scroll"><table>
+        <thead><tr><th>File</th><th class="num">People</th><th>Sent</th><th>Status</th><th class="right">Actions</th></tr></thead>
+        <tbody>${subs.map((s) => `
+          <tr>
+            <td>${esc(s.fileName)}</td>
+            <td class="num">${s.roster.length}</td>
+            <td class="nowrap">${date(s.submittedAt)}</td>
+            <td>${badge(SUBMISSION_STATUS[s.status], s.status === "PROCESSED" ? "badge-paid" : s.status === "REJECTED" ? "badge-suspended" : "badge-pending")}</td>
+            <td><div class="row-actions">
+              ${s.status === "PENDING" ? `<button class="btn btn-ghost btn-sm" data-action="admin-tab" data-tab="students">Open in Students</button>` : ""}
+            </div></td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>Invoices (${invoices.length})</h2>
+    ${invoices.length === 0 ? `<div class="empty">No invoices in ${esc(S.year)}.</div>` : `
+      <div class="table-scroll"><table>
+        <thead><tr><th>Description</th><th class="num">People</th><th class="num">Partner revenue</th><th class="num">GIMI amount</th><th>Status</th><th>Due</th></tr></thead>
+        <tbody>${invoices.map((i) => `
+          <tr>
+            <td>${esc(i.description)}${i.pdf ? `<span class="sub">${esc(i.pdf)}</span>` : `<span class="sub">No PDF attached</span>`}</td>
+            <td class="num">${i.studentCount}</td>
+            <td class="num">${money(i.partnerRevenue)}</td>
+            <td class="num">${money(i.gimiAmount)}</td>
+            <td>${invoiceBadge(i.status)}</td>
+            <td class="nowrap">${date(i.dueDate)}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>Leads (${leads.length})</h2>
+    ${leads.length === 0 ? `<div class="empty">No leads shared in ${esc(S.year)}.</div>` : `
+      <div class="table-scroll"><table>
+        <thead><tr><th>Company</th><th>Stage</th><th>Probability</th><th>Met</th><th>Docs sent</th><th class="num">Expected</th><th>Reviewed</th></tr></thead>
+        <tbody>${leads.map((l) => `
+          <tr>
+            <td>${esc(l.company)}<span class="sub">${esc(l.contact)}</span></td>
+            <td>${esc(LEAD_STAGE[l.stage])}</td>
+            <td>${esc(l.probability)}</td>
+            <td>${esc(MET_STATUS[l.metStatus])}</td>
+            <td>${esc(DOCS_SENT[l.docsSent])}</td>
+            <td class="num">${money(l.expectedRevenue)}</td>
+            <td>${l.reviewed ? badge("Yes", "badge-paid") : badge("No", "badge-pending")}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+  </section>
+
+  <section class="block">
+    <h2>Logins (${p.users.length})</h2>
+    ${p.users.length === 0
+      ? `<div class="empty">Nobody has completed the invitation yet.</div>`
+      : `<div class="table-scroll"><table>
+        <thead><tr><th>Name</th><th>Email</th><th>Last signed in</th></tr></thead>
+        <tbody>${p.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td class="nowrap">${date(u.lastLogin)}</td></tr>`).join("")}</tbody>
+      </table></div>`}
+  </section>`;
 }
 
 /* The full partner workspace, opened from a row rather than a separate tab. */
@@ -1657,17 +1839,51 @@ function partnerProfile() {
 
 function modalHtml() {
   if (!S.modal) return "";
+
+  // Rebuilt on every keystroke, so it is described rather than stored as HTML.
+  const modal = S.modal.kind === "columns" ? columnsModal() : S.modal;
+
   return `
   <div class="modal-backdrop" data-action="close-modal">
     <div class="modal" data-stop="1">
       <div class="modal-head">
-        <h2>${esc(S.modal.title)}</h2>
+        <h2>${esc(modal.title)}</h2>
         <button class="close-x" data-action="close-modal">&times;</button>
       </div>
-      <div class="modal-body">${S.modal.body}</div>
-      <div class="modal-foot">${S.modal.foot ?? `<button class="btn btn-ghost btn-sm" data-action="close-modal">Close</button>`}</div>
+      <div class="modal-body">${modal.body}</div>
+      <div class="modal-foot">${modal.foot ?? `<button class="btn btn-ghost btn-sm" data-action="close-modal">Close</button>`}</div>
     </div>
   </div>`;
+}
+
+/**
+ * Add, rename and remove the columns on the Partners table. These columns and
+ * everything written in them are admin-only and never reach a partner-facing screen.
+ */
+function columnsModal() {
+  return {
+    title: "Manage columns",
+    body: `
+      ${DB.customColumns.map((c) => {
+        const filled = DB.partners.filter((p) => p.notes[c.id]).length;
+        return `
+        <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:12px">
+          <label class="field" style="flex:1;margin:0">
+            <span>Column ${c.position}${filled ? ` · ${filled} filled in` : ""}</span>
+            <input type="text" value="${esc(c.name)}" data-action="rename-column" data-id="${c.id}">
+          </label>
+          <button class="btn btn-danger btn-sm" data-action="remove-column" data-id="${c.id}">Remove</button>
+        </div>`;
+      }).join("")}
+
+      <div style="border-top:1px solid var(--line-soft);margin-top:6px;padding-top:16px">
+        <label class="field">
+          <span>Add a column</span>
+          <input type="text" id="nc-name" placeholder="Renewal date">
+        </label>
+        <button class="btn btn-sm" data-action="add-column">Add column</button>
+      </div>`,
+  };
 }
 
 /* ============================================================== actions */
@@ -1812,7 +2028,7 @@ const ACTIONS = {
 
     const id = "p" + (DB.partners.length + 1) + Date.now().toString().slice(-3);
     DB.partners.push({
-      id, name, country: "", status: "PENDING", website: "", linkedin: "", phone: "",
+      id, name, country: "", status: "INVITED", website: "", linkedin: "", phone: "",
       expectedRevenue: null, visibleInDirectory: false,
       createdAt: "2026-07-29", approvedAt: null, users: [], notes: {},
     });
@@ -1857,6 +2073,12 @@ const ACTIONS = {
     p.website = val("ob-website"); p.linkedin = val("ob-linkedin"); p.phone = val("ob-phone");
     p.expectedRevenue = target;
     p.users.push({ name, email: invite.email, lastLogin: null });
+
+    // Completing the details is what makes them a partner. There is nothing to
+    // approve afterwards: GIMI already decided by sending the invitation.
+    p.status = "ACTIVE";
+    p.approvedAt = "2026-07-29";
+
     // The invitation is spent, so the link stops working.
     DB.invites = DB.invites.filter((i) => i.partnerId !== p.id);
 
@@ -1864,13 +2086,6 @@ const ACTIONS = {
     S.notice = null;
   },
 
-  "approve-partner"(el) {
-    const p = partner(el.dataset.id);
-    if (p.users.length === 0)
-      return notice("bad", "Nobody has completed the invitation yet, so there is no one to approve.");
-    p.status = "ACTIVE"; p.approvedAt = "2026-07-29";
-    notice("ok", `${p.name} approved. They can now sign in.`);
-  },
   suspend(el) {
     const p = partner(el.dataset.id);
     p.status = "SUSPENDED";
@@ -1881,13 +2096,65 @@ const ACTIONS = {
     p.status = "ACTIVE";
     notice("ok", `${p.name} reactivated.`);
   },
-  "manage-columns"() {
+  /* -------------------------------------------------------- managed columns */
+  "manage-columns"() { S.modal = { kind: "columns" }; },
+
+  "rename-column"(el) {
+    const col = DB.customColumns.find((c) => String(c.id) === el.dataset.id);
+    const name = el.value.trim();
+    if (!name) return notice("bad", "A column needs a name.");
+    col.name = name;
+  },
+
+  "add-column"() {
+    const name = val("nc-name");
+    if (name.length < 2) return notice("bad", "Give the column a name.");
+    if (DB.customColumns.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      return notice("bad", "There is already a column with that name.");
+    }
+    DB.customColumns.push({
+      id: DB.nextColumnId++,
+      name,
+      position: DB.customColumns.length + 1,
+    });
+    notice("ok", `Added "${name}".`);
+  },
+
+  "remove-column"(el) {
+    const id = Number(el.dataset.id);
+    const col = DB.customColumns.find((c) => c.id === id);
+    // Removing a column deletes what everyone wrote in it, so say so before doing it.
+    const filled = DB.partners.filter((p) => p.notes[id]).length;
     S.modal = {
-      title: "Manage columns",
-      body: `
-        ${DB.customColumns.map((c) => `<label class="field"><span>Column ${c.position}</span><input type="text" value="${esc(c.name)}"></label>`).join("")}
-        <p class="count">These columns and their contents are admin-only. They never appear in anything a partner can read.</p>`,
+      title: `Remove "${col.name}"?`,
+      body: `<p style="font-size:13.5px">${filled === 0
+        ? "Nothing has been written in this column."
+        : `<strong>${filled} partner${filled === 1 ? "" : "s"}</strong> ${filled === 1 ? "has" : "have"} something written in this column. Removing it deletes that too.`}</p>`,
+      foot: `<button class="btn btn-ghost btn-sm" data-action="close-modal">Cancel</button>
+             <button class="btn btn-danger btn-sm" data-action="remove-column-confirm" data-id="${id}">Remove the column</button>`,
     };
+  },
+
+  "remove-column-confirm"(el) {
+    const id = Number(el.dataset.id);
+    const col = DB.customColumns.find((c) => c.id === id);
+    DB.customColumns = DB.customColumns.filter((c) => c.id !== id);
+    DB.customColumns.forEach((c, n) => { c.position = n + 1; });
+    DB.partners.forEach((p) => { delete p.notes[id]; });
+    S.modal = null;
+    notice("ok", `Removed "${col.name}".`);
+  },
+
+  /* ------------------------------------------------------- the partner page */
+  "open-partner"(el) { S.partnerPage = el.dataset.id; S.notice = null; },
+  "close-partner"() { S.partnerPage = null; S.notice = null; },
+
+  "add-partner-comment"() {
+    const text = val("pc-text");
+    if (text.length < 2) return notice("bad", "Write something first.");
+    const p = partner(S.partnerPage);
+    p.comments.unshift({ when: "2026-07-30", author: S.identity.name, text });
+    notice("ok", "Comment added. Internal only.");
   },
 
   /* ------------------------------------------------- students: submissions */
@@ -2175,6 +2442,11 @@ document.addEventListener("input", (event) => {
   if (target.dataset.action === "partner-search") {
     ACTIONS["partner-search"](target);
     render();
+    return;
+  }
+  // Renaming a column must not re-render, or the input would be replaced mid-word.
+  if (target.dataset.action === "rename-column") {
+    ACTIONS["rename-column"](target);
   }
 });
 
