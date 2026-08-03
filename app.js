@@ -33,6 +33,19 @@ const S = {
   partnerPage: null,
   // Id of the lead whose own page is open, or null for the list.
   leadPage: null,
+  // Id of the submission whose own page is open, or null for the list.
+  submissionPage: null,
+
+  // The month Recognition is working on. An award is decided the month after the
+  // one it recognises, so this names the month being recognised, not today.
+  awardMonth: "2026-07",
+
+  // Students tab filters.
+  studentSearch: "",
+  studentPartner: "ALL",
+  studentCert: "ALL",
+  studentStatus: "ALL",
+  studentYear: "ALL",
 
   // Element to refocus after a re-render, so typing in a search box survives it.
   focus: null,
@@ -136,6 +149,17 @@ const YEARS = [
     ...DB.invoices.map((i) => i.issuedAt?.slice(0, 4)),
     ...DB.leads.map((l) => l.submittedAt?.slice(0, 4)),
   ].filter(Boolean)),
+].sort().reverse();
+
+/* Months Recognition can work on: any month already carrying a nomination or a
+   winner, plus the two most recent, newest first. Derived so the selector never
+   offers a month with nothing in it and never goes stale. */
+const AWARD_MONTHS = [
+  ...new Set([
+    "2026-07", "2026-06",
+    ...DB.nominations.map((n) => n.month),
+    ...DB.winners.map((w) => w.month),
+  ]),
 ].sort().reverse();
 
 /* The prototype's "today". Fixed rather than the real date, so the seeded data keeps
@@ -301,7 +325,7 @@ function doneScreen() {
     <div class="card-narrow">
       <div class="logo-centre"><img src="gimi-logo.png" alt="GIMI Institute"></div>
       <div class="panel" style="text-align:center">
-        <h1 style="color:var(--teal-deep);font-size:17px">Setup complete</h1>
+        <h1 style="color:var(--teal-dark);font-size:17px">Setup complete</h1>
         <p style="color:var(--muted);font-size:13px;margin-top:12px">
           Your password is set and your details are saved. GIMI will review and activate
           your access, and you will be able to sign in once they have.
@@ -333,6 +357,8 @@ function adminShell() {
     ? partnerPage(S.partnerPage)
     : S.leadPage
     ? leadPage(S.leadPage)
+    : S.submissionPage
+    ? submissionPage(S.submissionPage)
     : {
         overview: adminOverview,
         partners: adminPartners,
@@ -880,75 +906,102 @@ function partnerPage(id) {
   </section>`;
 }
 
-/* The full partner workspace, opened from a row rather than a separate tab. */
-function partnerWorkspace(p, cols) {
-  const students = DB.students.filter((s) => s.partnerId === p.id);
-  const invoices = DB.invoices.filter((i) => i.partnerId === p.id);
-  const leads = DB.leads.filter((l) => l.partnerId === p.id);
-  const subs = DB.submissions.filter((s) => s.partnerId === p.id && s.status === "PENDING");
-  const inv = invoices.filter((i) => i.status !== "DRAFT").reduce((n, i) => n + i.gimiAmount, 0);
-  const rec = invoices.filter((i) => i.status === "PAID").reduce((n, i) => n + i.gimiAmount, 0);
+/**
+ * One submission, on its own page. This is where GIMI reads every person before
+ * anyone is enrolled, so it gets a page rather than a row that unfolds inside a
+ * table. The point is seeing who you are approving.
+ */
+function submissionPage(id) {
+  const sub = DB.submissions.find((s) => s.id === id);
+  if (!sub) { S.submissionPage = null; return adminStudents(); }
+
+  const bad = sub.roster.filter(rowIncomplete);
+  const blocked = bad.length > 0;
 
   return `
-  <tr class="detail-row"><td colspan="${8 + cols.length}" data-workspace="${p.id}">
-    <div class="kpi-row" style="margin-bottom:18px">
-      ${kpi("delivery", "Enrolled", students.length)}
-      ${kpi("delivery", "Certified", students.filter((s) => s.status === "PASSED").length)}
-      ${kpi("delivery", "Pass rate", passRate(students))}
-      ${kpi("finance", "Invoiced", money(inv))}
-      ${kpi("finance", "Received", money(rec))}
-      ${kpi("finance", "Outstanding", money(inv - rec))}
+  <div style="margin-bottom:18px">
+    <button class="btn-link" data-action="close-submission">← All submissions</button>
+  </div>
+
+  <div class="page-head section-head">
+    <div>
+      <h1>${esc(sub.fileName)}</h1>
+      <p class="count">
+        ${esc(partnerName(sub.partnerId))} · sent ${date(sub.submittedAt)}
+        · ${sub.roster.length} ${sub.roster.length === 1 ? "person" : "people"}
+        · ${badge(SUBMISSION_STATUS[sub.status], sub.status === "PROCESSED" ? "badge-paid" : sub.status === "REJECTED" ? "badge-suspended" : "badge-pending")}
+      </p>
     </div>
+    ${sub.status === "PENDING" ? `<div class="toolbar">
+      <button class="btn btn-sm" data-action="confirm-sub" data-id="${sub.id}" ${blocked ? "disabled" : ""}>Confirm and enroll ${sub.roster.length}</button>
+      <button class="btn btn-danger btn-sm" data-action="open-reject-sub" data-id="${sub.id}">Reject</button>
+    </div>` : ""}
+  </div>
 
-    <div class="two-col">
-      <div>
-        <h2 style="font-size:12px;color:var(--teal-deep);margin-bottom:8px">Internal notes (admin only)</h2>
-        ${cols.map((c) => `
-          <label class="field"><span>${esc(c.name)}</span>
-          <input type="text" value="${esc(p.notes[c.id] || "")}" data-note="${p.id}:${c.id}"></label>`).join("")}
-        <p class="count">Never included in anything a partner can read.</p>
-      </div>
-      <div>
-        <h2 style="font-size:12px;color:var(--teal-deep);margin-bottom:8px">Contact</h2>
-        <p style="font-size:13px">${esc(p.website || "No website")}<br>${esc(p.phone || "No phone")}<br>${esc(p.country || "")}</p>
-        <p class="count" style="margin-top:8px">Directory: ${p.visibleInDirectory ? "opted in" : "not visible"}</p>
-        <div style="margin-top:14px">
-          <button class="btn btn-sm" data-action="new-invoice" data-id="${p.id}">+ New invoice</button>
-        </div>
-      </div>
-    </div>
+  ${blocked ? `<div class="notice notice-bad">
+    ${bad.length} of ${sub.roster.length} rows are missing a required field, so this cannot be
+    confirmed. The partner fixes their own data; the rows are marked below.
+  </div>` : ""}
 
-    ${subs.length ? `
-      <h2 style="font-size:12px;color:var(--teal-deep);margin:20px 0 8px">Submissions to process (${subs.length})</h2>
-      ${subs.map((s) => `<div class="status-row"><span>${esc(s.fileName)} · ${s.roster.length} people</span>
-        <button class="btn btn-ghost btn-sm" data-action="admin-tab" data-tab="students">Open Students</button></div>`).join("")}` : ""}
+  ${sub.rejectedReason ? `<div class="notice notice-info">Rejected: ${esc(sub.rejectedReason)}</div>` : ""}
 
-    <h2 style="font-size:12px;color:var(--teal-deep);margin:20px 0 8px">Invoices (${invoices.length})</h2>
-    ${invoices.length ? `<div class="table-scroll"><table>
-      <thead><tr><th>Description</th><th>Status</th><th class="num">Partner revenue</th><th class="num">GIMI amount</th></tr></thead>
-      <tbody>${invoices.map((i) => `<tr>
-        <td>${esc(i.description)}</td><td>${invoiceBadge(i.status)}</td>
-        <td class="num">${money(i.partnerRevenue)}</td><td class="num">${money(i.gimiAmount)}</td></tr>`).join("")}</tbody>
-    </table></div>` : `<div class="empty">No invoices yet.</div>`}
-
-    <h2 style="font-size:12px;color:var(--teal-deep);margin:20px 0 8px">Leads (${leads.length})</h2>
-    ${leads.length ? `<div class="table-scroll"><table>
-      <thead><tr><th>Company</th><th>Stage</th><th>Probability</th><th class="num">Expected</th></tr></thead>
-      <tbody>${leads.map((l) => `<tr><td>${esc(l.company)}</td><td>${esc(LEAD_STAGE[l.stage])}</td>
-        <td>${esc(l.probability)}</td><td class="num">${money(l.expectedRevenue)}</td></tr>`).join("")}</tbody>
-    </table></div>` : `<div class="empty">No leads yet.</div>`}
-  </td></tr>`;
+  <section class="block">
+    <h2>Everyone in this submission (${sub.roster.length})</h2>
+    <div class="table-scroll"><table>
+      <thead><tr>
+        <th>First</th><th>Last</th><th>Email</th><th>Certification</th>
+        <th>Exam date</th><th>Format</th><th>Language</th><th>Company</th>
+      </tr></thead>
+      <tbody>${sub.roster.map((r) => `
+        <tr${rowIncomplete(r) ? ' style="background:rgba(240,135,30,.07)"' : ""}>
+          <td>${esc(r.first) || missing()}</td>
+          <td>${esc(r.last) || missing()}</td>
+          <td>${esc(r.email) || missing()}</td>
+          <td>${esc(r.cert) || missing()}</td>
+          <td class="nowrap">${r.examDate ? date(r.examDate) : missing()}</td>
+          <td>${esc(EXAM_FORMATS.find((f) => f.value === r.format)?.label ?? "—")}</td>
+          <td>${esc(r.lang || "—")}</td>
+          <td>${esc(r.company || "—")}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table></div>
+  </section>`;
 }
 
-/* -------------------------------------------------------- admin: students */
+/* ------------------------------------------------------ students: filtering */
+
+function filteredStudents() {
+  const q = S.studentSearch.toLowerCase();
+  return DB.students.filter(
+    (s) =>
+      (!q ||
+        `${s.first} ${s.last}`.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        partnerName(s.partnerId).toLowerCase().includes(q)) &&
+      (S.studentPartner === "ALL" || s.partnerId === S.studentPartner) &&
+      (S.studentCert === "ALL" || s.cert === S.studentCert) &&
+      (S.studentStatus === "ALL" || s.status === S.studentStatus) &&
+      (S.studentYear === "ALL" || inYearOf(s.examDate, S.studentYear)),
+  );
+}
 
 function adminStudents() {
   const pending = DB.submissions.filter((s) => s.status === "PENDING");
+  const shown = filteredStudents();
+  const filtering =
+    S.studentSearch || S.studentPartner !== "ALL" || S.studentCert !== "ALL" ||
+    S.studentStatus !== "ALL" || S.studentYear !== "ALL";
+
+  // Only certifications somebody is actually enrolled on, so the filter is usable.
+  const certsInUse = [...new Set(DB.students.map((s) => s.cert))].sort();
+  const partnersInUse = [...new Set(DB.students.map((s) => s.partnerId))]
+    .map((id) => ({ id, name: partnerName(id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return `
   <div class="page-head">
     <h1>Students</h1>
-    <p class="count">Showing ${DB.students.length} of ${DB.students.length} enrolled.</p>
+    <p class="count">${DB.students.length} enrolled across the network.</p>
   </div>
 
   <section class="block">
@@ -958,35 +1011,57 @@ function adminStudents() {
         <thead><tr><th>Partner</th><th>File</th><th class="num">People</th><th>Received</th><th>Completeness</th><th class="right">Actions</th></tr></thead>
         <tbody>${pending.map((sub) => {
           const blocked = submissionBlocked(sub);
+          const bad = sub.roster.filter(rowIncomplete).length;
           return `
           <tr>
             <td>${esc(partnerName(sub.partnerId))}</td>
-            <td><button class="btn-link" data-action="toggle-open" data-id="sub-${sub.id}">${esc(sub.fileName)}</button>
-                <span class="sub">${S.open["sub-" + sub.id] ? "Hide" : "Show"} the ${sub.roster.length} people</span></td>
+            <td><button class="btn-link" data-action="open-submission" data-id="${sub.id}">${esc(sub.fileName)}</button>
+                <span class="sub">Read all ${sub.roster.length} people before confirming</span></td>
             <td class="num">${sub.roster.length}</td>
             <td class="nowrap">${date(sub.submittedAt)}</td>
             <td>${blocked
-              ? badge(`${sub.roster.filter(rowIncomplete).length} row(s) incomplete`, "badge-pending")
+              ? badge(`${bad} row${bad === 1 ? "" : "s"} incomplete`, "badge-pending")
               : badge("Complete", "badge-paid")}</td>
             <td><div class="row-actions">
               <button class="btn btn-sm" data-action="confirm-sub" data-id="${sub.id}" ${blocked ? "disabled" : ""}>Confirm</button>
-              <button class="btn btn-danger btn-sm" data-action="reject-sub" data-id="${sub.id}">Reject</button>
+              <button class="btn btn-danger btn-sm" data-action="open-reject-sub" data-id="${sub.id}">Reject</button>
             </div></td>
-          </tr>
-          ${S.open["sub-" + sub.id] ? rosterRow(sub) : ""}`;
+          </tr>`;
         }).join("")}</tbody>
-      </table></div>
-      <p class="count" style="margin-top:8px">
-        Confirming creates the students and raises a draft invoice, in one step.
-        A submission cannot be confirmed while any row is missing a required field.
-      </p>`}
+      </table></div>`}
   </section>
 
   <section class="block">
-    <h2>All students</h2>
-    <div class="table-scroll"><table>
+    <div class="section-head">
+      <h2>All students (${shown.length} of ${DB.students.length})</h2>
+      <div class="toolbar">
+        <input type="text" id="student-search" data-action="student-search" placeholder="Search name, email, partner"
+          value="${esc(S.studentSearch)}" style="width:210px;padding:6px 9px">
+        <select data-action="student-partner" style="width:auto;padding:6px 8px">
+          <option value="ALL" ${S.studentPartner === "ALL" ? "selected" : ""}>All partners</option>
+          ${partnersInUse.map((p) => `<option value="${p.id}" ${S.studentPartner === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+        </select>
+        <select data-action="student-cert" style="width:auto;padding:6px 8px;max-width:230px">
+          <option value="ALL" ${S.studentCert === "ALL" ? "selected" : ""}>All certifications</option>
+          ${certsInUse.map((c) => `<option value="${esc(c)}" ${S.studentCert === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+        </select>
+        <select data-action="student-status" style="width:auto;padding:6px 8px">
+          <option value="ALL" ${S.studentStatus === "ALL" ? "selected" : ""}>All results</option>
+          ${Object.entries(STUDENT_STATUS).map(([v, l]) => `<option value="${v}" ${S.studentStatus === v ? "selected" : ""}>${l}</option>`).join("")}
+        </select>
+        <select data-action="student-year" style="width:auto;padding:6px 8px">
+          <option value="ALL" ${S.studentYear === "ALL" ? "selected" : ""}>All years</option>
+          ${YEARS.map((y) => `<option value="${y}" ${S.studentYear === y ? "selected" : ""}>${y}</option>`).join("")}
+        </select>
+        ${filtering ? `<button class="btn btn-ghost btn-sm" data-action="clear-student-filters">Clear</button>` : ""}
+        <button class="btn btn-ghost btn-sm" data-action="csv-students" ${shown.length === 0 ? "disabled" : ""}>Download CSV</button>
+      </div>
+    </div>
+    ${shown.length === 0
+      ? `<div class="empty">${filtering ? "No students match these filters." : "No students enrolled yet."}</div>`
+      : `<div class="table-scroll"><table>
       <thead><tr><th>Name</th><th>Partner</th><th>Certification</th><th>Exam date</th><th>Language</th><th>Result</th></tr></thead>
-      <tbody>${DB.students.map((s) => `
+      <tbody>${shown.map((s) => `
         <tr>
           <td>${esc(s.first)} ${esc(s.last)}<span class="sub">${esc(s.email)}</span></td>
           <td>${esc(partnerName(s.partnerId))}</td>
@@ -998,43 +1073,15 @@ function adminStudents() {
               ${Object.entries(STUDENT_STATUS).map(([v, l]) =>
                 `<option value="${v}" ${s.status === v ? "selected" : ""}>${l}</option>`).join("")}
             </select>
+            ${s.resultSetBy ? `<span class="sub">${esc(s.resultSetBy)} · ${date(s.resultSetOn)}</span>` : ""}
           </td>
         </tr>`).join("")}
       </tbody>
-    </table></div>
-    <p class="count" style="margin-top:8px">
-      Results are set by hand here. Moodle owns the exam itself and the three-attempt rule.
-    </p>
+    </table></div>`}
   </section>`;
 }
 
-function rosterRow(sub) {
-  return `
-  <tr class="detail-row"><td colspan="6">
-    <h2 style="font-size:12px;color:var(--teal-deep);margin-bottom:8px">
-      Every person in ${esc(sub.fileName)} — ${sub.roster.length} rows
-    </h2>
-    <div class="table-scroll" style="background:var(--white)"><table>
-      <thead><tr><th>First</th><th>Last</th><th>Email</th><th>Certification</th><th>Exam date</th><th>Format</th><th>Company</th></tr></thead>
-      <tbody>${sub.roster.map((r) => `
-        <tr ${rowIncomplete(r) ? 'style="background:rgba(222,142,61,.08)"' : ""}>
-          <td>${esc(r.first) || missing()}</td>
-          <td>${esc(r.last) || missing()}</td>
-          <td>${esc(r.email) || missing()}</td>
-          <td>${esc(r.cert) || missing()}</td>
-          <td class="nowrap">${r.examDate ? date(r.examDate) : missing()}</td>
-          <td>${esc(EXAM_FORMATS.find((f) => f.value === r.format)?.label ?? "—")}</td>
-          <td>${esc(r.company || "—")}</td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>
-    <p class="count" style="margin-top:8px">
-      GIMI sees every name and email before confirming. A count is never stored without the people.
-    </p>
-  </td></tr>`;
-}
-
-const missing = () => `<span style="color:var(--magenta)">missing</span>`;
+const missing = () => `<span style="color:var(--pink)">missing</span>`;
 
 /* -------------------------------------------------------- admin: invoices */
 
@@ -1325,97 +1372,186 @@ function leadRows(rows) {
 
 /* ----------------------------------------------------- admin: recognition */
 
+/**
+ * Recognition, arranged as the cycle it actually is rather than five unrelated
+ * blocks. Reading down the page follows the process:
+ *
+ *   1. Collect nominations for the month being recognised
+ *   2. Build the poll from those nominations, one click per option
+ *   3. Partners vote; close it and the winner is recorded
+ *   4. History and the ranking, last
+ *
+ * The month is chosen, not hardcoded. An award is decided in the month after the one
+ * it recognises, so the selector names the month being recognised.
+ */
 function adminRecognition() {
+  const month = S.awardMonth;
   const open = DB.polls.find((p) => p.status === "OPEN");
   const closed = DB.polls.filter((p) => p.status === "CLOSED");
-  const nominations = DB.nominations.filter((n) => n.status === "PENDING");
+  const nominations = DB.nominations.filter((n) => n.month === month && n.status === "PENDING");
+  const winner = DB.winners.find((w) => w.month === month);
 
   const ranking = DB.partners
     .map((p) => {
-      const rows = DB.invoices.filter((i) => i.partnerId === p.id && i.status !== "DRAFT");
-      return { p, revenue: rows.reduce((n, i) => n + i.partnerRevenue, 0), certified: DB.students.filter((s) => s.partnerId === p.id && s.status === "PASSED").length };
+      const issued = DB.invoices.filter((i) => i.partnerId === p.id && i.status !== "DRAFT" && inYearOf(i.issuedAt, S.year));
+      return {
+        p,
+        invoiced: issued.reduce((n, i) => n + i.gimiAmount, 0),
+        certified: DB.students.filter((s) => s.partnerId === p.id && s.status === "PASSED" && inYearOf(s.examDate, S.year)).length,
+      };
     })
-    .sort((a, b) => b.revenue - a.revenue);
-  const maxRevenue = Math.max(1, ...ranking.map((r) => r.revenue));
+    .filter((r) => r.invoiced > 0 || r.certified > 0)
+    .sort((a, b) => b.certified - a.certified || b.invoiced - a.invoiced);
 
   return `
-  <div class="page-head"><h1>Recognition</h1></div>
-
-  <div class="toggle-row">
+  <div class="page-head section-head">
     <div>
-      <div class="lbl">Partner leaderboard</div>
-      <span class="sub">When off, partners have no leaderboard nav item and the route does not exist.</span>
+      <h1>Recognition</h1>
+      <p class="count">CTP of the Month, and the history behind it.</p>
     </div>
-    <button class="btn ${DB.settings.leaderboardEnabled ? "btn-danger" : ""} btn-sm" data-action="toggle-leaderboard">
-      ${DB.settings.leaderboardEnabled ? "Turn off" : "Turn on"}
-    </button>
+    <div class="toolbar">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <span style="color:var(--muted)">Recognising</span>
+        <select data-action="award-month" style="width:auto;padding:5px 8px">
+          ${AWARD_MONTHS.map((m) => `<option value="${m}" ${month === m ? "selected" : ""}>${monthName(m)}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="adder">
+    <div class="adder-head">
+      <h2>Add a nomination</h2>
+      <button class="btn btn-sm" data-action="toggle-open" data-id="add-nom">
+        ${S.open["add-nom"] ? "Cancel" : "+ Add a nomination"}
+      </button>
+    </div>
+    ${S.open["add-nom"] ? `
+      <div class="adder-body">
+        <div class="grid-2">
+          <label class="field"><span>Partner</span>
+            <select id="an-partner">${DB.partners.filter((p) => p.status === "ACTIVE").map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></label>
+          <label class="field"><span>Month being recognised</span>
+            <select id="an-month">${AWARD_MONTHS.map((m) => `<option value="${m}" ${month === m ? "selected" : ""}>${monthName(m)}</option>`).join("")}</select></label>
+        </div>
+        <label class="field"><span>What they did</span>
+          <textarea id="an-text" placeholder="Trained 40 people across three ministries, 38 certified."></textarea></label>
+        <button class="btn btn-sm" data-action="add-nomination">Add nomination</button>
+      </div>` : ""}
   </div>
 
   <section class="block">
-    <h2>CTP of the Month</h2>
-    ${open ? pollAdminCard(open) : `
-      <div class="adder">
-        <div class="adder-head">
-          <h2>Run a poll</h2>
-          <button class="btn btn-sm" data-action="start-poll">${S.pollDraft ? "Cancel" : "+ New poll"}</button>
-        </div>
-        ${S.pollDraft ? pollBuilder() : `<div class="adder-body"><p class="count">No poll is running. Nominations are collected first, then you write the options.</p></div>`}
-      </div>`}
+    <h2>1 &middot; Nominations for ${esc(monthName(month))} (${nominations.length})</h2>
+    ${nominations.length === 0
+      ? `<div class="empty">No nominations for ${esc(monthName(month))} yet. Partners nominate each other, or add one above.</div>`
+      : `<div class="table-scroll"><table>
+        <thead><tr><th>Nominated</th><th>Nominated by</th><th>What they did</th><th class="right">Actions</th></tr></thead>
+        <tbody>${nominations.map((n) => {
+          const pool = open ? open.options : (S.pollDraft ? S.pollDraft.options : []);
+          const alreadyAnOption = pool.some((o) => o.partnerId === n.partnerId);
+          return `
+          <tr>
+            <td>${esc(partnerName(n.partnerId))}</td>
+            <td>${n.byPartnerId === null
+              ? `<span style="color:var(--faint)">GIMI</span>`
+              : esc(partnerName(n.byPartnerId))}
+              ${n.byPartnerId === n.partnerId ? `<span class="sub">nominated themselves</span>` : ""}</td>
+            <td>${esc(n.text)}</td>
+            <td><div class="row-actions">
+              ${open
+                ? (alreadyAnOption ? badge("On the poll", "badge-active") : `<span style="font-size:11.5px;color:var(--faint)">Poll already open</span>`)
+                : alreadyAnOption
+                  ? badge("Added", "badge-active")
+                  : `<button class="btn btn-sm" data-action="nom-to-option" data-id="${n.id}">Use as poll option</button>`}
+              <button class="btn btn-ghost btn-sm" data-action="dismiss-nom" data-id="${n.id}">Dismiss</button>
+            </div></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>`}
   </section>
 
   <section class="block">
-    <h2>Nominations for ${monthName("2026-07")} (${nominations.length})</h2>
-    ${nominations.length === 0 ? `<div class="empty">No nominations yet.</div>` : `
+    <h2>2 &middot; The poll</h2>
+    ${open
+      ? pollAdminCard(open)
+      : winner
+        ? `<div class="empty">${esc(monthName(month))} is decided: ${esc(partnerName(winner.partnerId))}.</div>`
+        : S.pollDraft
+          ? pollBuilder()
+          : `<div class="empty">
+               No poll running for ${esc(monthName(month))}.
+               <div style="margin-top:12px"><button class="btn btn-sm" data-action="start-poll">Build the poll</button></div>
+             </div>`}
+  </section>
+
+  <section class="block">
+    <div class="section-head">
+      <h2>3 &middot; Past winners (${DB.winners.length})</h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" data-action="csv-winners" ${DB.winners.length === 0 ? "disabled" : ""}>Download CSV</button>
+      </div>
+    </div>
+    ${DB.winners.length === 0 ? `<div class="empty">No winners recorded yet.</div>` : `
       <div class="table-scroll"><table>
-        <thead><tr><th>Nominated</th><th>Nominated by</th><th>Why</th><th class="right">Actions</th></tr></thead>
-        <tbody>${nominations.map((n) => `
+        <thead><tr><th>Month recognised</th><th>Partner</th><th>Country</th></tr></thead>
+        <tbody>${DB.winners.map((w) => `
           <tr>
-            <td>${esc(partnerName(n.partnerId))}</td>
-            <td>${n.byPartnerId === null ? `<span style="color:var(--faint)">GIMI</span>` : esc(partnerName(n.byPartnerId))}
-              ${n.byPartnerId === n.partnerId ? `<span class="sub">self-nominated</span>` : ""}</td>
-            <td>${esc(n.text)}</td>
-            <td><div class="row-actions">
-              <button class="btn btn-ghost btn-sm" data-action="dismiss-nom" data-id="${n.id}">Dismiss</button>
-            </div></td>
+            <td class="nowrap">${esc(monthName(w.month))}</td>
+            <td>${esc(partnerName(w.partnerId))}</td>
+            <td>${esc(partner(w.partnerId) ? partner(w.partnerId).country : "—")}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+  </section>
+
+  ${closed.length ? `
+    <section class="block">
+      <h2>4 &middot; Closed polls</h2>
+      ${closed.map((p) => `
+        <div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px">
+          <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">
+            ${esc(monthName(p.month))}
+          </h4>
+          ${pollResults(p)}
+        </div>`).join("")}
+    </section>` : ""}
+
+  <section class="block">
+    <div class="section-head">
+      <h2>Partner ranking, ${esc(S.year)} &middot; admin only</h2>
+      <div class="toolbar">
+        <select data-action="set-year" style="width:auto;padding:6px 8px">
+          ${YEARS.map((y) => `<option value="${y}" ${S.year === y ? "selected" : ""}>${y}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    ${ranking.length === 0 ? `<div class="empty">No activity recorded in ${esc(S.year)}.</div>` : `
+      <div class="table-scroll"><table>
+        <thead><tr><th>#</th><th>Partner</th><th>Country</th><th class="num">Certified</th><th class="num">GIMI invoiced</th></tr></thead>
+        <tbody>${ranking.map((r, n) => `
+          <tr>
+            <td>${n + 1}</td>
+            <td>${esc(r.p.name)}</td>
+            <td>${esc(r.p.country)}</td>
+            <td class="num">${r.certified}</td>
+            <td class="num">${money(r.invoiced)}</td>
           </tr>`).join("")}
         </tbody>
       </table></div>`}
   </section>
 
   <section class="block">
-    <h2>Past winners</h2>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Month</th><th>Partner</th></tr></thead>
-      <tbody>${DB.winners.map((w) => `<tr><td>${esc(monthName(w.month))}</td><td>${esc(partnerName(w.partnerId))}</td></tr>`).join("")}</tbody>
-    </table></div>
-  </section>
-
-  <section class="block">
-    <h2>Revenue ranking (admin only)</h2>
-    <div class="table-scroll"><table>
-      <thead><tr><th>#</th><th>Partner</th><th class="num">Partner revenue</th><th style="width:30%">Share</th><th class="num">Certified</th></tr></thead>
-      <tbody>${ranking.map((r, n) => `
-        <tr>
-          <td>${n + 1}</td>
-          <td>${esc(r.p.name)}</td>
-          <td class="num">${money(r.revenue)}</td>
-          <td><div class="bar"><i style="width:${(r.revenue / maxRevenue) * 100}%"></i></div></td>
-          <td class="num">${r.certified}</td>
-        </tr>`).join("")}
-      </tbody>
-    </table></div>
-    <p class="count" style="margin-top:8px">Never shown to partners. The partner leaderboard ranks people certified and carries no money figure.</p>
-  </section>
-
-  ${closed.length ? `
-    <section class="block">
-      <h2>Closed polls</h2>
-      ${closed.map((p) => `
-        <div class="panel" style="padding:16px;margin-bottom:10px">
-          <h2 style="font-size:13px;color:var(--teal-deep);margin-bottom:10px">${esc(monthName(p.month))} — ${esc(p.question)}</h2>
-          ${pollResults(p)}
-        </div>`).join("")}
-    </section>` : ""}`;
+    <h2>Setting</h2>
+    <div class="toggle-row" style="margin-bottom:0">
+      <div>
+        <div class="lbl">Partner leaderboard</div>
+        <span class="sub">When off, partners have no leaderboard nav item and the route does not exist. It ranks people certified and shows no money.</span>
+      </div>
+      <button class="btn ${DB.settings.leaderboardEnabled ? "btn-danger" : ""} btn-sm" data-action="toggle-leaderboard">
+        ${DB.settings.leaderboardEnabled ? "Turn off" : "Turn on"}
+      </button>
+    </div>
+  </section>`;
 }
 
 function pollAdminCard(poll) {
@@ -1424,7 +1560,7 @@ function pollAdminCard(poll) {
   <div class="panel" style="padding:18px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div>
-        <h2 style="font-size:14px;color:var(--teal-deep)">${esc(poll.question)}</h2>
+        <h2 style="font-size:14px;color:var(--teal-dark)">${esc(poll.question)}</h2>
         <p class="count">Recognising ${esc(monthName(poll.month))} · ${badge("Open", "badge-active")} · ${total} vote${total === 1 ? "" : "s"} cast</p>
       </div>
       <button class="btn btn-sm" data-action="close-poll" data-id="${poll.id}">Close and publish</button>
@@ -1445,41 +1581,47 @@ function pollAdminCard(poll) {
 function pollBuilder() {
   const d = S.pollDraft;
   return `
-  <div class="adder-body">
-    <div class="grid-2">
-      <label class="field"><span>Month being recognised</span>
-        <select id="pd-month">
-          <option value="2026-07">July 2026</option>
-          <option value="2026-08">August 2026</option>
-        </select>
-        <span class="hint">July's award, decided in August, files under July.</span>
-      </label>
-      <label class="field"><span>Question</span><input type="text" id="pd-q" value="${esc(d.question)}"></label>
+  <div class="adder" style="margin-bottom:0">
+    <div class="adder-head">
+      <h2>Building the poll for ${esc(monthName(d.month))}</h2>
+      <button class="btn btn-ghost btn-sm" data-action="start-poll">Discard</button>
     </div>
+    <div class="adder-body">
+      <label class="field"><span>Question partners see</span>
+        <input type="text" id="pd-q" data-action="poll-question" value="${esc(d.question)}"></label>
 
-    <h2 style="font-size:12px;color:var(--teal-deep);margin:6px 0 8px">Options (${d.options.length})</h2>
-    ${d.options.length === 0 ? `<p class="count" style="margin-bottom:10px">No options yet. You write the wording; voters see only that.</p>` : ""}
-    ${d.options.map((o, n) => `
-      <div class="poll-option">
-        <div style="flex:1">
-          <div>${esc(o.label)}</div>
-          <div class="who">Tagged to ${esc(partnerName(o.partnerId))}</div>
-        </div>
-        <button class="btn btn-danger btn-sm" data-action="drop-option" data-id="${n}">Remove</button>
-      </div>`).join("")}
+      <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px">
+        Options (${d.options.length})
+      </h4>
+      ${d.options.length === 0
+        ? `<div class="empty" style="padding:20px">
+             Nothing yet. Use <strong>Use as poll option</strong> on a nomination above, or add one by hand below.
+           </div>`
+        : d.options.map((o, n) => `
+        <div class="poll-option">
+          <div style="flex:1">
+            <textarea data-action="edit-option" data-id="${n}" style="min-height:52px">${esc(o.label)}</textarea>
+            <div class="who">Tagged to ${esc(partnerName(o.partnerId))} · invisible to voters</div>
+          </div>
+          <button class="btn btn-danger btn-sm" data-action="drop-option" data-id="${n}">Remove</button>
+        </div>`).join("")}
 
-    <div class="grid-2" style="margin-top:12px">
-      <label class="field"><span>Which partner is this about</span>
-        <select id="po-partner">${DB.partners.filter((p) => p.status === "ACTIVE").map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
-        <span class="hint">Invisible to voters. It links the winner to a real partner so rankings work.</span>
-      </label>
-      <label class="field"><span>Wording voters will see</span>
-        <textarea id="po-label" placeholder="Partner X: trained 40 people across 3 countries to achieve Y."></textarea>
-      </label>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" data-action="add-option">Add option</button>
-      <button class="btn btn-sm" data-action="open-poll" ${d.options.length < 2 ? "disabled" : ""}>Open poll to partners</button>
+      <div class="grid-2" style="margin-top:14px">
+        <label class="field"><span>Add another partner by hand</span>
+          <select id="po-partner">${DB.partners.filter((p) => p.status === "ACTIVE").map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
+          <span class="hint">Invisible to voters. It links the winner to a real partner.</span>
+        </label>
+        <label class="field"><span>Wording voters will see</span>
+          <textarea id="po-label" placeholder="Partner X: trained 40 people across three countries."></textarea>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" data-action="add-option">Add option</button>
+        <button class="btn btn-sm" data-action="open-poll" ${d.options.length < 2 ? "disabled" : ""}>
+          Open poll to partners
+        </button>
+        ${d.options.length < 2 ? `<span style="font-size:11.5px;color:var(--faint);align-self:center">A poll needs at least two options.</span>` : ""}
+      </div>
     </div>
   </div>`;
 }
@@ -1573,7 +1715,7 @@ function partnerDashboard() {
     <section class="block">
       <h2>CTP of the Month vote</h2>
       <div class="panel" style="padding:18px">
-        <h2 style="font-size:14px;color:var(--teal-deep)">${esc(openPoll.question)}</h2>
+        <h2 style="font-size:14px;color:var(--teal-dark)">${esc(openPoll.question)}</h2>
         <p class="count" style="margin:4px 0 14px">
           Recognising ${esc(monthName(openPoll.month))}. One vote per account.
           ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
@@ -1730,7 +1872,7 @@ function stagingArea() {
           Send ${S.staging.length} ${S.staging.length === 1 ? "person" : "people"} to GIMI
         </button>
         ${bad > 0
-          ? `<span style="font-size:12px;color:var(--magenta)">${bad} row${bad > 1 ? "s" : ""} incomplete. Fix them before sending.</span>`
+          ? `<span style="font-size:12px;color:var(--pink)">${bad} row${bad > 1 ? "s" : ""} incomplete. Fix them before sending.</span>`
           : `<span style="font-size:11.5px;color:var(--faint)">Every row has the fields GIMI requires.</span>`}
       </div>`}
   </div>`;
@@ -2410,6 +2552,50 @@ const ACTIONS = {
   },
 
   /* ------------------------------------------------- students: submissions */
+  "open-submission"(el) { S.submissionPage = el.dataset.id; S.notice = null; },
+  "close-submission"() { S.submissionPage = null; S.notice = null; },
+
+  "student-search"(el) { S.studentSearch = el.value; S.focus = "student-search"; },
+  "student-partner"(el) { S.studentPartner = el.value; },
+  "student-cert"(el) { S.studentCert = el.value; },
+  "student-status"(el) { S.studentStatus = el.value; },
+  "student-year"(el) { S.studentYear = el.value; },
+  "clear-student-filters"() {
+    S.studentSearch = ""; S.studentPartner = "ALL"; S.studentCert = "ALL";
+    S.studentStatus = "ALL"; S.studentYear = "ALL";
+  },
+
+  "csv-students"() {
+    const rows = filteredStudents();
+    if (rows.length === 0) return notice("bad", "Nothing to export with these filters.");
+    downloadCsv(
+      "gimi-students.csv",
+      ["First name", "Last name", "Email", "Partner", "Country", "Certification", "Exam date", "Language", "Format", "Result", "Result set by", "Result set on"],
+      rows.map((s) => [
+        s.first, s.last, s.email, partnerName(s.partnerId), s.country, s.cert,
+        s.examDate, s.lang,
+        EXAM_FORMATS.find((f) => f.value === s.format)?.label ?? "",
+        STUDENT_STATUS[s.status], s.resultSetBy ?? "", s.resultSetOn ?? "",
+      ]),
+    );
+    notice("ok", `Exported ${rows.length} students.`);
+  },
+
+  "open-reject-sub"(el) {
+    const sub = DB.submissions.find((s) => s.id === el.dataset.id);
+    S.modal = {
+      title: `Reject ${sub.fileName}?`,
+      body: `
+        <label class="field">
+          <span>Why, in the partner's words</span>
+          <textarea id="rs-reason" placeholder="Three rows are missing an exam date, and two email addresses bounce."></textarea>
+          <span class="hint">${esc(partnerName(sub.partnerId))} sees exactly this, so write it for them.</span>
+        </label>`,
+      foot: `<button class="btn btn-ghost btn-sm" data-action="close-modal">Cancel</button>
+             <button class="btn btn-danger btn-sm" data-action="reject-sub" data-id="${sub.id}">Reject and tell them</button>`,
+    };
+  },
+
   "confirm-sub"(el) {
     const sub = DB.submissions.find((s) => s.id === el.dataset.id);
     if (submissionBlocked(sub)) return notice("bad", "Some rows are missing required fields.");
@@ -2429,17 +2615,27 @@ const ACTIONS = {
       partnerRevenue: 0, gimiAmount: 0, status: "DRAFT",
       issuedAt: null, dueDate: "2026-09-30", pdf: null, qbRef: null, payment: null,
     });
-    notice("ok", `${sub.roster.length} students created and a draft invoice raised. The partner cannot see the draft.`);
+    S.submissionPage = null;
+    notice("ok", `${sub.roster.length} students enrolled and a draft invoice raised. The partner cannot see the draft.`);
   },
   "reject-sub"(el) {
     const sub = DB.submissions.find((s) => s.id === el.dataset.id);
+    const reason = val("rs-reason");
+    if (reason.length < 5) return notice("bad", "Give the partner a reason. They only see what you write here.");
     sub.status = "REJECTED";
-    notice("ok", `${sub.fileName} rejected. The partner is told why.`);
+    sub.rejectedReason = reason;
+    S.modal = null;
+    S.submissionPage = null;
+    notice("ok", `${sub.fileName} rejected. ${partnerName(sub.partnerId)} has been told why.`);
   },
   "set-result"(el) {
-    const s = DB.students.find((x) => x.id === el.dataset.id);
-    s.status = el.value;
-    notice("ok", `${s.first} ${s.last} marked ${STUDENT_STATUS[el.value].toLowerCase()}.`);
+    const student = DB.students.find((x) => x.id === el.dataset.id);
+    student.status = el.value;
+    // Who changed a result and when. Marking somebody failed is consequential and
+    // was previously untraceable.
+    student.resultSetBy = S.identity.name;
+    student.resultSetOn = TODAY;
+    notice("ok", `${student.first} ${student.last} marked ${STUDENT_STATUS[el.value].toLowerCase()}.`);
   },
 
   /* ------------------------------------------------------------- invoices */
@@ -2668,8 +2864,71 @@ const ACTIONS = {
       ? "Leaderboard on. Partners now have the nav item."
       : "Leaderboard off. Partners have no nav item and the route does not exist.");
   },
+  "award-month"(el) { S.awardMonth = el.value; S.pollDraft = null; },
+
+  "add-nomination"() {
+    const text = val("an-text");
+    if (text.length < 5) return notice("bad", "Say what they did. Voters read this.");
+    const month = val("an-month") || S.awardMonth;
+    DB.nominations.push({
+      id: "n" + Date.now(),
+      month,
+      partnerId: val("an-partner"),
+      // Null author: GIMI nominated them directly rather than a partner doing it.
+      byPartnerId: null,
+      text,
+      status: "PENDING",
+    });
+    S.open["add-nom"] = false;
+    S.awardMonth = month;
+    notice("ok", `Nomination added for ${monthName(month)}.`);
+  },
+
+  /** Turns a nomination into a poll option, which is the step that was missing. */
+  "nom-to-option"(el) {
+    const n = DB.nominations.find((x) => x.id === el.dataset.id);
+    if (!S.pollDraft) {
+      S.pollDraft = {
+        month: n.month,
+        question: `Who should be CTP of the Month for ${monthName(n.month)}?`,
+        options: [],
+      };
+    }
+    if (S.pollDraft.options.some((o) => o.partnerId === n.partnerId)) {
+      return notice("bad", `${partnerName(n.partnerId)} is already an option.`);
+    }
+    // The nomination text becomes the wording voters see. Editable in the builder,
+    // because a voter cannot judge a partner they know nothing about.
+    S.pollDraft.options.push({
+      id: "o" + Date.now(),
+      partnerId: n.partnerId,
+      label: `${partnerName(n.partnerId)}: ${n.text}`,
+      votes: 0,
+    });
+    notice("ok", `${partnerName(n.partnerId)} added to the poll. Edit the wording below before opening it.`);
+  },
+
+  "csv-winners"() {
+    if (DB.winners.length === 0) return notice("bad", "No winners to export.");
+    downloadCsv(
+      "gimi-ctp-of-the-month.csv",
+      ["Month recognised", "Partner", "Country", "Region"],
+      DB.winners.map((w) => {
+        const p = partner(w.partnerId);
+        return [monthName(w.month), p ? p.name : "", p ? p.country : "", p ? p.region : ""];
+      }),
+    );
+    notice("ok", `Exported ${DB.winners.length} winners.`);
+  },
+
   "start-poll"() {
-    S.pollDraft = S.pollDraft ? null : { month: "2026-07", question: "Who should be CTP of the Month for July 2026?", options: [] };
+    S.pollDraft = S.pollDraft
+      ? null
+      : {
+          month: S.awardMonth,
+          question: `Who should be CTP of the Month for ${monthName(S.awardMonth)}?`,
+          options: [],
+        };
   },
   "add-option"() {
     const label = val("po-label");
@@ -2677,12 +2936,17 @@ const ACTIONS = {
     S.pollDraft.options.push({ id: "o" + Date.now(), partnerId: val("po-partner"), label, votes: 0 });
   },
   "drop-option"(el) { S.pollDraft.options.splice(Number(el.dataset.id), 1); },
+  "edit-option"(el) { S.pollDraft.options[Number(el.dataset.id)].label = el.value; },
+  "poll-question"(el) { S.pollDraft.question = el.value; },
   "open-poll"() {
     if (S.pollDraft.options.length < 2) return notice("bad", "A poll needs at least two options.");
     DB.polls.unshift({
-      id: "poll" + Date.now(), month: val("pd-month") || S.pollDraft.month,
-      status: "OPEN", question: val("pd-q") || S.pollDraft.question,
-      options: S.pollDraft.options, votedBy: [],
+      id: "poll" + Date.now(),
+      month: S.pollDraft.month,
+      status: "OPEN",
+      question: S.pollDraft.question,
+      options: S.pollDraft.options,
+      votedBy: [],
     });
     S.pollDraft = null;
     notice("ok", "Poll opened. Partners can vote from their dashboard.");
@@ -2695,6 +2959,7 @@ const ACTIONS = {
     DB.nominations.filter((n) => n.month === poll.month).forEach((n) => {
       n.status = n.partnerId === winner.partnerId ? "SELECTED" : "DISMISSED";
     });
+    S.awardMonth = poll.month;
     notice("ok", `${partnerName(winner.partnerId)} is CTP of the Month for ${monthName(poll.month)}.`);
   },
   "dismiss-nom"(el) {
@@ -2755,7 +3020,9 @@ document.addEventListener("change", (event) => {
   const target = event.target;
 
   // Selects and result dropdowns act on change.
-  if (["set-result", "set-year", "partner-status", "partner-region"].includes(target.dataset.action)) {
+  if (["set-result", "set-year", "partner-status", "partner-region",
+       "student-partner", "student-cert", "student-status", "student-year",
+       "poll-month"].includes(target.dataset.action)) {
     S.notice = null; ACTIONS[target.dataset.action](target); render(); return;
   }
 
@@ -2776,14 +3043,14 @@ document.addEventListener("change", (event) => {
 /* Search boxes filter as you type, so they listen for input rather than change. */
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.dataset.action === "partner-search") {
-    ACTIONS["partner-search"](target);
+  if (target.dataset.action === "partner-search" || target.dataset.action === "student-search") {
+    ACTIONS[target.dataset.action](target);
     render();
     return;
   }
-  // Renaming a column must not re-render, or the input would be replaced mid-word.
-  if (target.dataset.action === "rename-column") {
-    ACTIONS["rename-column"](target);
+  // These edit state in place. Re-rendering would replace the field mid-word.
+  if (["rename-column", "edit-option", "poll-question"].includes(target.dataset.action)) {
+    ACTIONS[target.dataset.action](target);
   }
 });
 
