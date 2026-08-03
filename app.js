@@ -1325,7 +1325,8 @@ function leadPage(id) {
 
 const LEAD_HEAD = `<thead><tr>
   <th>Company</th><th>Partner</th><th>Stage</th><th>Probability</th><th>Met</th>
-  <th>Docs sent</th><th class="num">Expected</th><th>Close</th><th class="right">Actions</th>
+  <th>Docs sent</th><th class="num">Expected</th><th>Close</th>
+  <th class="num">From GIMI</th><th class="right">Actions</th>
 </tr></thead>`;
 
 function adminLeads() {
@@ -1363,8 +1364,11 @@ function leadRows(rows) {
         <td>${esc(DOCS_SENT[l.docsSent])}</td>
         <td class="num">${money(l.expectedRevenue)}</td>
         <td class="nowrap">${date(l.expectedCloseDate)}</td>
+        <td class="num">${l.documents.length || "—"}</td>
         <td><div class="row-actions">
           ${l.reviewed ? badge("Reviewed", "badge-neutral") : `<button class="btn btn-sm" data-action="review-lead" data-id="${l.id}">Mark reviewed</button>`}
+          <button class="btn btn-ghost btn-sm" data-action="open-attach-lead-doc" data-id="${l.id}">Attach</button>
+          <button class="btn btn-ghost btn-sm" data-action="open-lead" data-id="${l.id}">Open</button>
         </div></td>
       </tr>
       `).join("");
@@ -1984,7 +1988,8 @@ function partnerLeads() {
 
 const MY_LEAD_HEAD = `<thead><tr>
   <th>Company</th><th>Stage</th><th>Probability</th><th>Met</th>
-  <th>Docs sent</th><th class="num">Expected</th><th>GIMI</th>
+  <th>Docs sent</th><th class="num">Expected</th>
+  <th class="num">From GIMI</th><th>Status</th><th class="right"></th>
 </tr></thead>`;
 
 /** Shared by both partner lead tables so they cannot drift apart. */
@@ -1998,7 +2003,11 @@ function myLeadRows(rows) {
       <td>${esc(MET_STATUS[l.metStatus])}</td>
       <td>${esc(DOCS_SENT[l.docsSent])}</td>
       <td class="num">${money(l.expectedRevenue)}</td>
+      <td class="num">${l.documents.length || "—"}</td>
       <td>${l.reviewed ? badge("Reviewed", "badge-paid") : badge("With GIMI", "badge-pending")}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-ghost btn-sm" data-action="open-lead" data-id="${l.id}">Open</button>
+      </div></td>
     </tr>`).join("");
 }
 
