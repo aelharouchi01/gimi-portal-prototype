@@ -57,7 +57,7 @@ body {
   margin: 0;
   background: var(--white);
   color: var(--text);
-  font: 15px/1.6 var(--font);
+  font: var(--t-body)/1.65 var(--font);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -69,19 +69,97 @@ a:hover { text-decoration: underline; }
 
 .hidden { display: none !important; }
 
+
+/* ============================================================== type scale
+
+   Six steps, each visibly distinct, each descending. Before this there were
+   thirteen sizes and a section title was 11.5px, smaller than the 15px body text
+   inside it and a quarter the size of a KPI number, so nothing read as a heading.
+
+     28   page title          one per screen
+     16   section title       the card header strip
+     14   body                paragraphs, labels, form text
+     13.5 table cell
+     11   micro-label         uppercase eyebrows, table headers, hints
+     24   figure              the number on a KPI card
+
+   Nothing else. If a new size seems necessary, one of these is wrong.
+
+   Uppercase is reserved for micro-labels. A section title is sentence case, because
+   a title that shouts at 11px is not a title.                                   */
+
+:root {
+  --t-page: 28px;
+  --t-section: 16px;
+  --t-body: 14px;
+  --t-cell: 13.5px;
+  --t-micro: 11px;
+  --t-control: 13px;   /* buttons, chrome, form labels */
+  --t-figure: 24px;
+}
+
+/* The uppercase eyebrow, used for every micro-label so they cannot drift apart. */
+.eyebrow,
+.kpi-group h3,
+h4.sub-label,
+th {
+  font-size: var(--t-micro);
+  font-weight: 800;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Text roles, so markup never carries a font size. */
+p.lede { font-size: var(--t-body); max-width: 78ch; margin-bottom: 16px; }
+p.lede-strong { font-size: var(--t-body); font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+p.byline, .hint-inline { font-size: var(--t-micro); color: var(--faint); font-weight: 500; letter-spacing: 0; text-transform: none; }
+p.byline { margin-bottom: 5px; }
+p.note { font-size: var(--t-micro); color: var(--faint); margin-top: 12px; }
+p.note-centre { font-size: var(--t-micro); color: var(--faint); margin-top: 16px; text-align: center; }
+ul.bullets { margin: 0; padding-left: 18px; font-size: var(--t-body); }
+ul.bullets li { margin-bottom: 4px; }
+
+/* One comment card, used on partners, leads and invoices. The stripe says who wrote it. */
+.comment {
+  border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px;
+}
+.comment.from-gimi { border-left-color: var(--teal); }
+.comment.from-partner { border-left-color: var(--yellow); }
+.comment p:last-child { font-size: var(--t-body); }
+
+/* A bordered block inside a section, for closed polls and similar. */
+.panel-inset {
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 16px; margin-bottom: 10px;
+}
+
+/* An inline label beside a select, in a toolbar. */
+label.field-inline { display: flex; align-items: center; gap: 8px; font-size: var(--t-control); margin: 0; }
+label.field-inline > span { color: var(--muted); font-weight: 600; font-size: var(--t-control); }
+
+/* Label and value pairs: partner contact details, invoice facts, payment facts.
+   Was nineteen hand-written inline cells; now one class. */
+table.facts { font-size: var(--t-body); }
+table.facts td { border: 0; padding: 5px 0; vertical-align: top; }
+table.facts td:first-child {
+  color: var(--muted); padding-right: 18px; white-space: nowrap; width: 1%;
+}
+
 /* ------------------------------------------------------------ prototype bar */
 
 #proto-bar {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   background: var(--navy-dark); color: var(--white);
-  padding: 7px 26px; font-size: 12.5px;
+  padding: 7px 26px; font-size: var(--t-control);
 }
-#proto-bar strong { color: var(--yellow); font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; font-size: 11px; }
+#proto-bar strong { color: var(--yellow); font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; font-size: var(--t-micro); }
 #proto-bar .spacer { flex: 1; }
 #proto-bar button {
   background: rgba(255, 255, 255, 0.1); color: var(--white);
   border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: var(--radius-xs); padding: 4px 10px; font-size: 12px; font-weight: 600;
+  border-radius: var(--radius-xs); padding: 4px 10px; font-size: var(--t-control); font-weight: 600;
 }
 #proto-bar button:hover { background: rgba(255, 255, 255, 0.18); }
 
@@ -92,10 +170,10 @@ a:hover { text-decoration: underline; }
   background: var(--navy); padding: 14px 26px;
 }
 .app-header img { height: 28px; width: auto; }
-.app-header .who { display: flex; align-items: center; gap: 16px; color: rgba(255, 255, 255, 0.88); font-size: 13px; }
+.app-header .who { display: flex; align-items: center; gap: 16px; color: rgba(255, 255, 255, 0.88); font-size: var(--t-control); }
 .app-header .who button {
   background: none; border: 1px solid rgba(255, 255, 255, 0.3); color: var(--white);
-  border-radius: var(--radius-xs); padding: 5px 12px; font-size: 12.5px; font-weight: 600;
+  border-radius: var(--radius-xs); padding: 5px 12px; font-size: var(--t-control); font-weight: 600;
 }
 .app-header .who button:hover { background: rgba(255, 255, 255, 0.1); }
 
@@ -104,7 +182,7 @@ a:hover { text-decoration: underline; }
 .tabs ul { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
 .tabs button {
   background: none; border: 0; border-radius: var(--radius-xs);
-  padding: 9px 15px; font-size: 14px; font-weight: 600;
+  padding: 9px 15px; font-size: var(--t-body); font-weight: 600;
   color: rgba(255, 255, 255, 0.82);
 }
 .tabs button:hover { background: rgba(255, 255, 255, 0.1); color: var(--white); }
@@ -115,8 +193,8 @@ main.app-main { padding: 30px 26px 80px; max-width: 1500px; }
 /* ------------------------------------------------------------ page headings */
 
 .page-head { margin-bottom: 26px; }
-.page-head h1 { font-size: 27px; }
-.page-head .count { color: var(--muted); font-size: 13px; margin-top: 5px; }
+.page-head h1 { font-size: var(--t-page); line-height: 1.2; }
+.page-head .count { color: var(--muted); font-size: var(--t-body); margin-top: 6px; }
 
 /* ---------------------------------------------------------------- sections
 
@@ -134,29 +212,33 @@ section.block {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  margin-bottom: 26px;
-  padding-bottom: 18px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
   overflow: hidden;
 }
 
-/* The eyebrow style the store uses for section labels, as a header strip. */
+/* The card header strip. */
 section.block > h2,
 section.block > .section-head {
-  margin: 0 0 18px;
-  padding: 13px 18px;
+  margin: 0 0 20px;
+  padding: 14px 20px;
   background: var(--wash);
   border-bottom: 1px solid var(--line);
 }
 section.block > h2,
 section.block > .section-head h2,
-.section-head h2 {
-  font-size: 11.5px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase;
-  color: var(--teal-dark);
+.section-head h2,
+.adder-head h2 {
+  font-size: var(--t-section);
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  text-transform: none;
+  color: var(--navy);
 }
 section.block > .section-head h2 { margin: 0; padding: 0; background: none; border: 0; }
 
 /* Contents sit inside the card rather than against its edge. */
-section.block > *:not(h2):not(.section-head) { margin-left: 18px; margin-right: 18px; }
+section.block > *:not(h2):not(.section-head) { margin-left: 20px; margin-right: 20px; }
 
 /* A nested table keeps its rules but drops the outer frame the card already gives. */
 section.block .table-scroll { box-shadow: none; }
@@ -196,8 +278,10 @@ section.block-plain > .section-head {
 }
 .panel-head { border-bottom: 1px solid var(--line-soft); padding-bottom: 20px; margin-bottom: 22px; }
 .panel-head.centre { text-align: center; }
-.panel-head h1 { font-size: 19px; }
-.panel-head p { color: var(--muted); font-size: 13.5px; margin-top: 6px; }
+/* The sign-in card heading is a section title. The logo above it carries the weight,
+   so an eighth size for one line of text is not worth it. */
+.panel-head h1 { font-size: var(--t-section); }
+.panel-head p { color: var(--muted); font-size: var(--t-cell); margin-top: 6px; }
 
 .logo-centre { display: flex; justify-content: center; margin-bottom: 26px; }
 .logo-centre img { width: 210px; height: auto; }
@@ -205,9 +289,9 @@ section.block-plain > .section-head {
 /* --------------------------------------------------------------------- forms */
 
 label.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
-label.field > span { font-size: 12.5px; font-weight: 700; color: var(--navy); }
+label.field > span { font-size: var(--t-control); font-weight: 700; color: var(--navy); }
 label.field .optional { font-weight: 500; color: var(--faint); }
-label.field .hint { font-size: 11.5px; color: var(--faint); font-weight: 500; }
+label.field .hint { font-size: var(--t-micro); color: var(--faint); font-weight: 500; }
 
 input[type=text], input[type=email], input[type=password],
 input[type=date], input[type=number], input[type=file], select, textarea {
@@ -218,7 +302,7 @@ input[type=date], input[type=number], input[type=file], select, textarea {
 input:focus, select:focus, textarea:focus {
   border-color: var(--teal); box-shadow: 0 0 0 3px rgba(42, 172, 181, 0.16);
 }
-input[type=file] { padding: 7px 9px; font-size: 13px; }
+input[type=file] { padding: 7px 9px; font-size: var(--t-control); }
 textarea { resize: vertical; min-height: 76px; }
 
 .grid-2 { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
@@ -226,8 +310,8 @@ textarea { resize: vertical; min-height: 76px; }
 
 fieldset { border: 0; padding: 0; margin: 0 0 8px; }
 fieldset legend {
-  font-size: 11.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase;
-  color: var(--teal-dark); margin-bottom: 12px; padding: 0;
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 12px; padding: 0;
 }
 .fieldset-split { border-top: 1px solid var(--line-soft); padding-top: 20px; margin-top: 6px; }
 
@@ -236,7 +320,7 @@ fieldset legend {
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   border: 1px solid transparent; border-radius: var(--radius-sm);
-  padding: 10px 18px; font-size: 14px; font-weight: 700;
+  padding: 10px 18px; font-size: var(--t-body); font-weight: 700;
   background: var(--teal); color: var(--white);
   transition: background .15s, box-shadow .15s, transform .15s;
 }
@@ -250,7 +334,7 @@ fieldset legend {
 .btn-danger { background: var(--white); color: var(--pink); border-color: #e8ccd4; }
 .btn-danger:hover { background: var(--pink); color: var(--white); box-shadow: none; }
 
-.btn-sm { padding: 6px 12px; font-size: 12.5px; border-radius: var(--radius-xs); }
+.btn-sm { padding: 6px 12px; font-size: var(--t-control); border-radius: var(--radius-xs); }
 
 .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; background: var(--teal); }
 .btn-ghost[disabled], .btn-danger[disabled] { background: var(--white); }
@@ -272,15 +356,12 @@ fieldset legend {
   box-shadow: var(--shadow-sm);
 }
 .status-row.clear { border-left-color: var(--teal); }
-.status-row span { font-size: 14px; font-weight: 600; color: var(--navy); }
+.status-row span { font-size: var(--t-body); font-weight: 600; color: var(--navy); }
 
 /* ----------------------------------------------------------------- kpi cards */
 
 .kpi-group { margin-bottom: 24px; }
-.kpi-group h3 {
-  font-size: 11px; letter-spacing: 1.3px; text-transform: uppercase;
-  color: var(--muted); margin-bottom: 10px; font-weight: 800;
-}
+.kpi-group h3 { margin-bottom: 10px; }
 .kpi-row { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); }
 .kpi {
   background: var(--white); border: 1px solid var(--line); border-top: 4px solid var(--teal);
@@ -289,11 +370,11 @@ fieldset legend {
 .kpi.network { border-top-color: var(--teal); }
 .kpi.delivery { border-top-color: var(--yellow); }
 .kpi.finance { border-top-color: var(--orange); }
-.kpi dt { font-size: 12px; font-weight: 700; color: var(--muted); }
-.kpi dd { margin: 6px 0 0; font-size: 26px; font-weight: 800; color: var(--navy); letter-spacing: -0.6px; }
+.kpi dt { font-size: var(--t-control); font-weight: 700; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.kpi dd { margin: 6px 0 0; font-size: var(--t-figure); font-weight: 800; color: var(--navy); letter-spacing: -0.6px; }
 /* Last year's figure. No arrows, no red or green: "outstanding up" and "certified
    up" cannot share a colour scheme. */
-.kpi dd.kpi-compare { font-size: 11.5px; font-weight: 600; color: var(--faint); margin-top: 4px; letter-spacing: 0; }
+.kpi dd.kpi-compare { font-size: var(--t-micro); font-weight: 600; color: var(--faint); margin-top: 4px; letter-spacing: 0; }
 
 /* -------------------------------------------------------------------- tables */
 
@@ -301,11 +382,10 @@ fieldset legend {
   background: var(--white); border: 1px solid var(--line);
   border-radius: var(--radius-md); overflow-x: auto; box-shadow: var(--shadow-sm);
 }
-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table { width: 100%; border-collapse: collapse; font-size: var(--t-cell); }
 thead tr { background: var(--wash); }
 th {
-  text-align: left; padding: 11px 16px; font-size: 10.5px; font-weight: 800;
-  letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+  text-align: left; padding: 11px 16px;
   white-space: nowrap; border-bottom: 1px solid var(--line);
 }
 td { padding: 12px 16px; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
@@ -315,12 +395,12 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
 .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .right { text-align: right; }
 .nowrap { white-space: nowrap; }
-.sub { display: block; font-size: 11.5px; color: var(--faint); margin-top: 3px; font-weight: 500; }
+.sub { display: block; font-size: var(--t-micro); color: var(--faint); margin-top: 3px; font-weight: 500; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 
 .empty {
   background: var(--white); border: 1px dashed #d3d8de; border-radius: var(--radius-md);
-  padding: 34px 18px; text-align: center; color: var(--muted); font-size: 13.5px;
+  padding: 34px 18px; text-align: center; color: var(--muted); font-size: var(--t-cell);
 }
 
 /* -------------------------------------------------------------------- badges */
@@ -328,7 +408,7 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
 .badge {
   display: inline-block; white-space: nowrap; border: 1px solid transparent;
   border-radius: var(--radius-xs); padding: 3px 9px;
-  font-size: 10.5px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
 }
 .badge-pending   { color: #9a5410; background: rgba(240, 135, 30, .14); }
 .badge-active    { color: var(--teal-dark); background: var(--teal-light); }
@@ -339,7 +419,7 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
 .badge-paid      { color: var(--teal-dark); background: var(--teal-light); }
 .badge-neutral   { color: var(--muted); background: var(--wash); }
 
-.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 11.5px; color: var(--muted); align-items: center; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: var(--t-micro); color: var(--muted); align-items: center; }
 
 /* ------------------------------------------------- add panel inside a section */
 
@@ -348,10 +428,7 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
   border-radius: var(--radius-md); margin-bottom: 24px; box-shadow: var(--shadow-sm);
 }
 .adder-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
-.adder-head h2 {
-  font-size: 11.5px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase;
-  color: var(--teal-dark); margin: 0;
-}
+.adder-head h2 { margin: 0; }
 .adder-body { border-top: 1px solid var(--line-soft); padding: 20px 16px; background: #fcfdfd; }
 
 /* ------------------------------------------------------------------ progress */
@@ -364,7 +441,7 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
 
 .notice {
   border: 1px solid transparent; border-radius: var(--radius-md);
-  padding: 11px 15px; font-size: 13.5px; font-weight: 600; margin-bottom: 18px;
+  padding: 11px 15px; font-size: var(--t-cell); font-weight: 600; margin-bottom: 18px;
 }
 .notice-ok   { color: var(--teal-dark); background: var(--teal-light); border-color: rgba(42, 172, 181, .3); }
 .notice-bad  { color: #a8334e; background: rgba(225, 90, 120, .08); border-color: rgba(225, 90, 120, .3); }
@@ -386,21 +463,21 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 22px; border-bottom: 1px solid var(--line);
 }
-.modal-head h2 { font-size: 16px; }
+.modal-head h2 { font-size: var(--t-section); }
 .modal-body { padding: 22px; }
 .modal-foot {
   padding: 16px 22px; border-top: 1px solid var(--line); background: var(--wash);
   display: flex; gap: 10px; justify-content: flex-end;
   border-radius: 0 0 var(--radius) var(--radius);
 }
-.close-x { background: none; border: 0; font-size: 22px; line-height: 1; color: var(--muted); padding: 0 4px; }
+.close-x { background: none; border: 0; font-size: var(--t-figure); line-height: 1; color: var(--muted); padding: 0 4px; }
 .close-x:hover { color: var(--navy); }
 
 .email-preview {
   border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--wash); padding: 16px; font-size: 13px;
+  background: var(--wash); padding: 16px; font-size: var(--t-control);
 }
-.email-preview .meta { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+.email-preview .meta { color: var(--muted); font-size: var(--t-control); margin-bottom: 12px; }
 .email-preview pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; color: var(--text); }
 
 /* ---------------------------------------------------------------- poll bits */
@@ -411,9 +488,9 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
   border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 9px;
 }
 .poll-option.selected { border-color: var(--teal); background: var(--teal-light); }
-.poll-option .who { font-size: 11.5px; color: var(--faint); margin-top: 4px; }
+.poll-option .who { font-size: var(--t-micro); color: var(--faint); margin-top: 4px; }
 .poll-result { display: flex; align-items: center; gap: 14px; margin-bottom: 11px; }
-.poll-result .label { flex: 1; font-size: 13.5px; }
+.poll-result .label { flex: 1; font-size: var(--t-cell); }
 .poll-result .bar { flex: 0 0 160px; }
 
 .toggle-row {
@@ -422,13 +499,13 @@ tfoot td { background: var(--wash); font-weight: 800; color: var(--navy); }
   border-radius: var(--radius-md); padding: 15px 17px; margin-bottom: 22px;
   box-shadow: var(--shadow-sm);
 }
-.toggle-row .lbl { font-size: 14px; font-weight: 700; color: var(--navy); }
+.toggle-row .lbl { font-size: var(--t-body); font-weight: 700; color: var(--navy); }
 .toggle-row .sub { margin-top: 3px; }
 
 .chip {
   display: inline-block; background: var(--teal-light); color: var(--teal-dark);
   border-radius: var(--radius-xs); padding: 3px 9px;
-  font-size: 11.5px; font-weight: 700; margin: 0 5px 5px 0;
+  font-size: var(--t-micro); font-weight: 700; margin: 0 5px 5px 0;
 }
 
 .two-col { display: grid; gap: 26px; grid-template-columns: 1fr 1fr; }

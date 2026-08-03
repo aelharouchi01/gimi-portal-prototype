@@ -212,6 +212,96 @@ function noticeHtml() {
   return `<div class="notice ${cls}" role="status">${esc(S.notice.text)}</div>`;
 }
 
+
+/* ============================================================== factories
+
+   Every record created at runtime goes through one of these.
+
+   The reason is a bug that bit twice: an object was created by hand, a field the
+   renderer assumed was missing, and a whole tab threw. Confirming a submission
+   built an invoice with no `comments` array, so opening Invoices afterwards broke.
+   A factory means a new field is added in one place and every creation path gets
+   it, including the ones nobody remembered to update.                          */
+
+function newInvoice(fields) {
+  return {
+    id: "inv" + Date.now(),
+    partnerId: null,
+    description: "",
+    certification: null,
+    studentCount: 1,
+    partnerRevenue: 0,
+    gimiAmount: 0,
+    status: "DRAFT",
+    issuedAt: null,
+    dueDate: TODAY,
+    pdf: null,
+    qbRef: null,
+    payment: null,
+    comments: [],
+    ...fields,
+  };
+}
+
+function newLead(fields) {
+  return {
+    id: "l" + Date.now(),
+    partnerId: null,
+    company: "",
+    contact: "",
+    website: "",
+    stage: "NEW",
+    probability: "MEDIUM",
+    metStatus: "NOT_YET",
+    docsSent: "NOTHING",
+    products: [],
+    expectedRevenue: 0,
+    submittedAt: TODAY,
+    expectedCloseDate: null,
+    supportNeeded: "",
+    reviewed: false,
+    comments: [],
+    documents: [],
+    ...fields,
+  };
+}
+
+function newPartner(fields) {
+  return {
+    id: "p" + Date.now(),
+    name: "",
+    country: "—",
+    region: "—",
+    partnerType: "Training Partner",
+    status: "INVITED",
+    website: "",
+    linkedin: "",
+    phone: "",
+    expectedRevenue: null,
+    certTarget: null,
+    visibleInDirectory: false,
+    createdAt: TODAY,
+    approvedAt: null,
+    users: [],
+    notes: {},
+    comments: [],
+    ...fields,
+  };
+}
+
+function newSubmission(fields) {
+  return {
+    id: "sub" + Date.now(),
+    partnerId: null,
+    fileName: "",
+    submittedAt: TODAY,
+    status: "PENDING",
+    roster: [],
+    rejectedReason: null,
+    ...fields,
+  };
+}
+
 /* ============================================================== rendering */
 
 function render() {
@@ -256,18 +346,18 @@ function signinScreen() {
         <label class="field"><span>Email</span><input type="email" id="si-email" value="admin@gimi.org"></label>
         <label class="field"><span>Password</span><input type="password" id="si-pass" value="••••••••••••"></label>
         <button class="btn btn-block" data-action="signin-admin">Sign in</button>
-        <p style="margin-top:16px;text-align:center;font-size:12px;color:var(--faint)">
+        <p class="note-centre">
           One form for both roles. There is no picker: the role comes from the account.
         </p>
         <div class="panel-head" style="border-bottom:0;border-top:1px solid var(--line-soft);margin:18px 0 0;padding:16px 0 0">
-          <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Prototype shortcuts</p>
+          <p class="note">Prototype shortcuts</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" data-action="signin-admin">Sign in as GIMI staff</button>
             <button class="btn btn-ghost btn-sm" data-action="signin-partner">Sign in as a partner</button>
           </div>
         </div>
       </div>
-      <p style="margin-top:18px;text-align:center;font-size:11.5px;color:var(--faint)">
+      <p class="note-centre">
         Access is by invitation from GIMI.
       </p>
     </div>
@@ -332,8 +422,8 @@ function doneScreen() {
     <div class="card-narrow">
       <div class="logo-centre"><img src="gimi-logo.png" alt="GIMI Institute"></div>
       <div class="panel" style="text-align:center">
-        <h1 style="color:var(--teal-dark);font-size:17px">Setup complete</h1>
-        <p style="color:var(--muted);font-size:13px;margin-top:12px">
+        <h1>Setup complete</h1>
+        <p class="note">
           Your password is set and your details are saved. GIMI will review and activate
           your access, and you will be able to sign in once they have.
         </p>
@@ -452,8 +542,7 @@ function adminOverview() {
   return `
   <div class="page-head section-head">
     <h1>Overview</h1>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-      <span style="color:var(--muted)">Year</span>
+    <label class="field-inline"><span>Year</span>
       <select data-action="set-year" style="width:auto;padding:5px 8px">
         ${YEARS.map((y) => `<option value="${y}" ${S.year === y ? "selected" : ""}>${y}</option>`).join("")}
       </select>
@@ -688,7 +777,7 @@ function adminPartners() {
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <button class="btn btn-sm" data-action="add-partner">Send invitation</button>
-          <span style="font-size:11.5px;color:var(--faint)">They set their own password and fill in the rest.</span>
+          <span class="hint-inline">They set their own password and fill in the rest.</span>
         </div>
       </div>` : ""}
   </div>
@@ -784,8 +873,7 @@ function partnerPage(id) {
       </p>
     </div>
     <div class="toolbar">
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-        <span style="color:var(--muted)">Year</span>
+      <label class="field-inline"><span>Year</span>
         <select data-action="set-year" style="width:auto;padding:5px 8px">
           ${YEARS.map((y) => `<option value="${y}" ${S.year === y ? "selected" : ""}>${y}</option>`).join("")}
         </select>
@@ -841,9 +929,9 @@ function partnerPage(id) {
         ${p.comments.length === 0
           ? `<div class="empty" style="padding:18px">Nothing recorded yet.</div>`
           : p.comments.map((c) => `
-            <div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;margin-bottom:8px">
-              <p style="font-size:11.5px;color:var(--faint);margin-bottom:4px">${esc(c.author)} · ${date(c.when)}</p>
-              <p style="font-size:13px">${esc(c.text)}</p>
+            <div class="comment from-gimi">
+              <p class="byline">${esc(c.author)} · ${date(c.when)}</p>
+              <p>${esc(c.text)}</p>
             </div>`).join("")}
       </div>
     </section>
@@ -1114,7 +1202,7 @@ function invoiceRows(rows) {
         ${i.status === "PAYMENT_REPORTED" ? `
           <button class="btn btn-sm" data-action="confirm-payment" data-id="${i.id}">Funds received</button>
           <button class="btn btn-danger btn-sm" data-action="reject-payment" data-id="${i.id}">Not received</button>` : ""}
-        ${i.status === "PAID" ? `<span style="font-size:11.5px;color:var(--faint)">Locked</span>` : ""}
+        ${i.status === "PAID" ? `<span class="hint-inline">Locked</span>` : ""}
         <button class="btn btn-ghost btn-sm" data-action="open-invoice" data-id="${i.id}">Open</button>
       </div></td>
     </tr>`).join("");
@@ -1176,24 +1264,24 @@ function invoicePage(id) {
   <div class="two-col">
     <section class="block">
       <h2>The invoice</h2>
-      <table><tbody>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Certification</td><td style="border:0;padding:4px 0">${esc(i.certification || "—")}</td></tr>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Attached file</td><td style="border:0;padding:4px 0">${i.pdf
+      <table class="facts"><tbody>
+        <tr><td>Certification</td><td>${esc(i.certification || "—")}</td></tr>
+        <tr><td>Attached file</td><td>${i.pdf
           ? esc(i.pdf) + (file ? ` · ${Math.max(1, Math.round(file.size / 1024))} KB` : ` · placeholder`)
           : "Nothing attached"}</td></tr>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Issued</td><td style="border:0;padding:4px 0">${date(i.issuedAt)}</td></tr>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Due</td><td style="border:0;padding:4px 0">${date(i.dueDate)}</td></tr>
+        <tr><td>Issued</td><td>${date(i.issuedAt)}</td></tr>
+        <tr><td>Due</td><td>${date(i.dueDate)}</td></tr>
       </tbody></table>
     </section>
 
     <section class="block">
       <h2>Payment</h2>
       ${i.payment
-        ? `<table><tbody>
-            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Reference</td><td style="border:0;padding:4px 0">${esc(i.payment.reference)}</td></tr>
-            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Paid on</td><td style="border:0;padding:4px 0">${date(i.payment.paidOn)}</td></tr>
-            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Method</td><td style="border:0;padding:4px 0">${esc(i.payment.method)}</td></tr>
-            <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Status</td><td style="border:0;padding:4px 0">${i.status === "PAID"
+        ? `<table class="facts"><tbody>
+            <tr><td>Reference</td><td>${esc(i.payment.reference)}</td></tr>
+            <tr><td>Paid on</td><td>${date(i.payment.paidOn)}</td></tr>
+            <tr><td>Method</td><td>${esc(i.payment.method)}</td></tr>
+            <tr><td>Status</td><td>${i.status === "PAID"
               ? "Confirmed received by GIMI"
               : "Reported, awaiting GIMI's confirmation"}</td></tr>
           </tbody></table>`
@@ -1215,11 +1303,11 @@ function invoicePage(id) {
       ${i.comments.length === 0
         ? `<div class="empty">No comments yet. Anything written here is visible to both sides.</div>`
         : i.comments.map((c) => `
-          <div style="border:1px solid var(--line);border-left:3px solid ${c.fromGimi ? "var(--teal)" : "var(--yellow)"};border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px">
-            <p style="font-size:11.5px;color:var(--faint);margin-bottom:5px">
+          <div class="comment ${c.fromGimi ? "from-gimi" : "from-partner"}">
+            <p class="byline">
               ${esc(c.author)}${c.fromGimi ? " · GIMI" : " · partner"} · ${date(c.when)}
             </p>
-            <p style="font-size:13.5px">${esc(c.text)}</p>
+            <p>${esc(c.text)}</p>
           </div>`).join("")}
     </div>
   </section>`;
@@ -1326,7 +1414,7 @@ function invoiceForm() {
     <label class="field"><span>QuickBooks reference <span class="optional">(optional)</span></span>
       <input type="text" id="ni-qb" placeholder="QB-1070" style="max-width:220px"></label>
     <button class="btn btn-sm" data-action="create-invoice">Create as draft</button>
-    <span style="font-size:11.5px;color:var(--faint);margin-left:10px">Drafts are never visible to the partner.</span>
+    <span class="hint-inline">Drafts are never visible to the partner.</span>
   </div>`;
 }
 
@@ -1383,13 +1471,13 @@ function leadPage(id) {
   <div class="two-col">
     <section class="block">
       <h2>Qualification</h2>
-      <table><tbody>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Have they met</td><td style="border:0;padding:4px 0">${esc(MET_STATUS[l.metStatus])}</td></tr>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Documents sent</td><td style="border:0;padding:4px 0">${esc(DOCS_SENT[l.docsSent])}</td></tr>
-        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Products of interest</td><td style="border:0;padding:4px 0">${l.products.length ? l.products.map((p) => `<span class="chip">${esc(p)}</span>`).join("") : "—"}</td></tr>
+      <table class="facts"><tbody>
+        <tr><td>Have they met</td><td>${esc(MET_STATUS[l.metStatus])}</td></tr>
+        <tr><td>Documents sent</td><td>${esc(DOCS_SENT[l.docsSent])}</td></tr>
+        <tr><td>Products of interest</td><td>${l.products.length ? l.products.map((p) => `<span class="chip">${esc(p)}</span>`).join("") : "—"}</td></tr>
       </tbody></table>
-      <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:16px 0 6px">Support asked for from GIMI</h4>
-      <p style="font-size:13.5px">${esc(l.supportNeeded) || "Nothing recorded."}</p>
+      <h4 class="sub-label">Support asked for from GIMI</h4>
+      <p>${esc(l.supportNeeded) || "Nothing recorded."}</p>
     </section>
 
     <section class="block">
@@ -1431,11 +1519,11 @@ function leadPage(id) {
       ${l.comments.length === 0
         ? `<div class="empty">No comments yet.</div>`
         : l.comments.map((c) => `
-          <div style="border:1px solid var(--line);border-left:3px solid ${c.fromGimi ? "var(--teal)" : "var(--yellow)"};border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px">
-            <p style="font-size:11.5px;color:var(--faint);margin-bottom:5px">
+          <div class="comment ${c.fromGimi ? "from-gimi" : "from-partner"}">
+            <p class="byline">
               ${esc(c.author)}${c.fromGimi ? " · GIMI" : " · partner"} · ${date(c.when)}
             </p>
-            <p style="font-size:13.5px">${esc(c.text)}</p>
+            <p>${esc(c.text)}</p>
           </div>`).join("")}
     </div>
   </section>`;
@@ -1532,8 +1620,7 @@ function adminRecognition() {
       <p class="count">CTP of the Month, and the history behind it.</p>
     </div>
     <div class="toolbar">
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-        <span style="color:var(--muted)">Recognising</span>
+      <label class="field-inline"><span>Recognising</span>
         <select data-action="award-month" style="width:auto;padding:5px 8px">
           ${AWARD_MONTHS.map((m) => `<option value="${m}" ${month === m ? "selected" : ""}>${monthName(m)}</option>`).join("")}
         </select>
@@ -1581,7 +1668,7 @@ function adminRecognition() {
             <td>${esc(n.text)}</td>
             <td><div class="row-actions">
               ${open
-                ? (alreadyAnOption ? badge("On the poll", "badge-active") : `<span style="font-size:11.5px;color:var(--faint)">Poll already open</span>`)
+                ? (alreadyAnOption ? badge("On the poll", "badge-active") : `<span class="hint-inline">Poll already open</span>`)
                 : alreadyAnOption
                   ? badge("Added", "badge-active")
                   : `<button class="btn btn-sm" data-action="nom-to-option" data-id="${n.id}">Use as poll option</button>`}
@@ -1630,8 +1717,8 @@ function adminRecognition() {
     <section class="block">
       <h2>4 &middot; Closed polls</h2>
       ${closed.map((p) => `
-        <div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px">
-          <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">
+        <div class="panel-inset">
+          <h4 class="sub-label">
             ${esc(monthName(p.month))}
           </h4>
           ${pollResults(p)}
@@ -1671,7 +1758,7 @@ function pollAdminCard(poll) {
   <div class="panel" style="padding:18px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div>
-        <h2 style="font-size:14px;color:var(--teal-dark)">${esc(poll.question)}</h2>
+        <p class="lede-strong">${esc(poll.question)}</p>
         <p class="count">Recognising ${esc(monthName(poll.month))} · ${badge("Open", "badge-active")} · ${total} vote${total === 1 ? "" : "s"} cast</p>
       </div>
       <button class="btn btn-sm" data-action="close-poll" data-id="${poll.id}">Close and publish</button>
@@ -1701,7 +1788,7 @@ function pollBuilder() {
       <label class="field"><span>Question partners see</span>
         <input type="text" id="pd-q" data-action="poll-question" value="${esc(d.question)}"></label>
 
-      <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px">
+      <h4 class="sub-label">
         Options (${d.options.length})
       </h4>
       ${d.options.length === 0
@@ -1731,7 +1818,7 @@ function pollBuilder() {
         <button class="btn btn-sm" data-action="open-poll" ${d.options.length < 2 ? "disabled" : ""}>
           Open poll to partners
         </button>
-        ${d.options.length < 2 ? `<span style="font-size:11.5px;color:var(--faint);align-self:center">A poll needs at least two options.</span>` : ""}
+        ${d.options.length < 2 ? `<span class="hint-inline">A poll needs at least two options.</span>` : ""}
       </div>
     </div>
   </div>`;
@@ -1987,7 +2074,7 @@ function partnerDashboard() {
   ${openPoll ? `
     <section class="block">
       <h2>Announcement · CTP of the Month</h2>
-      <p style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:4px">${esc(openPoll.question)}</p>
+      <p class="lede-strong">${esc(openPoll.question)}</p>
       <p class="count" style="margin-bottom:14px">
         Recognising ${esc(monthName(openPoll.month))}. One vote per account.
         ${alreadyVoted ? "Your organisation has voted." : "You have not voted yet."}
@@ -2228,8 +2315,8 @@ function stagingArea() {
           Send ${S.staging.length} ${S.staging.length === 1 ? "person" : "people"} to GIMI
         </button>
         ${bad > 0
-          ? `<span style="font-size:12px;color:var(--pink)">${bad} row${bad > 1 ? "s" : ""} incomplete. Fix them before sending.</span>`
-          : `<span style="font-size:11.5px;color:var(--faint)">Every row has the fields GIMI requires.</span>`}
+          ? `<span class="hint-inline" style="color:var(--pink)">${bad} row${bad > 1 ? "s" : ""} incomplete. Fix them before sending.</span>`
+          : `<span class="hint-inline">Every row has the fields GIMI requires.</span>`}
       </div>`}
   </div>`;
 }
@@ -2286,12 +2373,12 @@ function partnerInvoices() {
   <section class="block" style="margin-top:24px">
     <h2>Where to pay</h2>
     <div class="panel" style="padding:16px">
-      <table style="font-size:13px">
+      <table class="facts">
         <tbody>
-          <tr><td style="border:0;padding:3px 12px 3px 0;color:var(--muted)">Bank</td><td style="border:0;padding:3px 0">Example Bank, Boston MA</td></tr>
-          <tr><td style="border:0;padding:3px 12px 3px 0;color:var(--muted)">Account</td><td style="border:0;padding:3px 0">GIMI Institute Inc.</td></tr>
-          <tr><td style="border:0;padding:3px 12px 3px 0;color:var(--muted)">SWIFT</td><td style="border:0;padding:3px 0">EXBKUS33</td></tr>
-          <tr><td style="border:0;padding:3px 12px 3px 0;color:var(--muted)">Reference</td><td style="border:0;padding:3px 0">Your invoice number</td></tr>
+          <tr><td>Bank</td><td>Example Bank, Boston MA</td></tr>
+          <tr><td>Account</td><td>GIMI Institute Inc.</td></tr>
+          <tr><td>SWIFT</td><td>EXBKUS33</td></tr>
+          <tr><td>Reference</td><td>Your invoice number</td></tr>
         </tbody>
       </table>
     </div>
@@ -2388,7 +2475,7 @@ function catalogueSection() {
     ${groups.map((group) => {
       const rows = DB.catalogue.filter((c) => c.group === group);
       return `
-      <h3 style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px">
+      <h4 class="sub-label">
         ${esc(group)} (${rows.length})
       </h3>
       <div class="table-scroll"><table>
@@ -2417,14 +2504,14 @@ function catalogueDetail(c) {
   const list = (label, items) =>
     items && items.length
       ? `<div>
-           <h4 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">${label}</h4>
-           <ul style="margin:0;padding-left:18px;font-size:13px">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+           <h4 class="sub-label">${label}</h4>
+           <ul class="bullets">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
          </div>`
       : "";
 
   return `
   <tr class="detail-row"><td colspan="6">
-    <p style="font-size:13.5px;max-width:78ch;margin-bottom:16px">${esc(c.description)}</p>
+    <p class="lede">${esc(c.description)}</p>
     <div class="two-col" style="margin-bottom:14px">
       ${list("What's included", c.included)}
       ${list("Skills you'll master", c.skills)}
@@ -2432,12 +2519,12 @@ function catalogueDetail(c) {
     <div class="two-col">
       ${list("Career outcomes", c.outcomes)}
       <div>
-        <h4 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Examination</h4>
-        <table style="font-size:13px"><tbody>
-          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Format</td><td style="border:0;padding:2px 0">${esc(c.examFormat || "—")}</td></tr>
-          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Prerequisite</td><td style="border:0;padding:2px 0">${esc(c.prerequisite || "None")}</td></tr>
-          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">Certificate</td><td style="border:0;padding:2px 0">${esc(c.certPrice || "—")}${c.certMode ? " · " + esc(c.certMode) : ""}</td></tr>
-          <tr><td style="border:0;padding:2px 12px 2px 0;color:var(--muted)">With training</td><td style="border:0;padding:2px 0">${esc(c.trainingPrice || "—")}${c.trainingMode ? " · " + esc(c.trainingMode) : ""}</td></tr>
+        <h4 class="sub-label">Examination</h4>
+        <table class="facts"><tbody>
+          <tr><td>Format</td><td>${esc(c.examFormat || "—")}</td></tr>
+          <tr><td>Prerequisite</td><td>${esc(c.prerequisite || "None")}</td></tr>
+          <tr><td>Certificate</td><td>${esc(c.certPrice || "—")}${c.certMode ? " · " + esc(c.certMode) : ""}</td></tr>
+          <tr><td>With training</td><td>${esc(c.trainingPrice || "—")}${c.trainingMode ? " · " + esc(c.trainingMode) : ""}</td></tr>
         </tbody></table>
       </div>
     </div>
@@ -2515,8 +2602,8 @@ function partnerCommunity() {
     <h2>Forum</h2>
     ${DB.forum.map((f) => `
       <div class="panel" style="padding:14px;margin-bottom:8px">
-        <p style="font-size:12px;color:var(--muted);margin-bottom:4px">${esc(f.author)} · ${esc(partnerName(f.partnerId))} · ${date(f.when)}</p>
-        <p style="font-size:13.5px">${esc(f.text)}</p>
+        <p class="byline">${esc(f.author)} · ${esc(partnerName(f.partnerId))} · ${date(f.when)}</p>
+        <p>${esc(f.text)}</p>
       </div>`).join("")}
     <div class="adder" style="margin-top:12px">
       <div class="adder-body">
@@ -2849,11 +2936,7 @@ const ACTIONS = {
       return notice("bad", "That email already has an account. Add them to the existing partner instead.");
 
     const id = "p" + (DB.partners.length + 1) + Date.now().toString().slice(-3);
-    DB.partners.push({
-      id, name, country: "", status: "INVITED", website: "", linkedin: "", phone: "",
-      expectedRevenue: null, visibleInDirectory: false,
-      createdAt: "2026-07-29", approvedAt: null, users: [], notes: {},
-    });
+    DB.partners.push(newPartner({ id, name, createdAt: TODAY }));
     DB.invites.push({ id: "i" + Date.now(), partnerId: id, email, expiresAt: "2026-08-05", sentAt: "2026-07-29" });
 
     S.open["add-partner"] = false;
@@ -2949,7 +3032,7 @@ const ACTIONS = {
     const filled = DB.partners.filter((p) => p.notes[id]).length;
     S.modal = {
       title: `Remove "${col.name}"?`,
-      body: `<p style="font-size:13.5px">${filled === 0
+      body: `<p>${filled === 0
         ? "Nothing has been written in this column."
         : `<strong>${filled} partner${filled === 1 ? "" : "s"}</strong> ${filled === 1 ? "has" : "have"} something written in this column. Removing it deletes that too.`}</p>`,
       foot: `<button class="btn btn-ghost btn-sm" data-action="close-modal">Cancel</button>
@@ -3037,12 +3120,12 @@ const ACTIONS = {
       });
     });
     // Same step raises a draft invoice. studentCount comes from the roster length.
-    DB.invoices.push({
-      id: "inv" + Date.now(), partnerId: sub.partnerId,
-      description: `From ${sub.fileName}`, studentCount: sub.roster.length,
-      partnerRevenue: 0, gimiAmount: 0, status: "DRAFT",
-      issuedAt: null, dueDate: "2026-09-30", pdf: null, qbRef: null, payment: null,
-    });
+    DB.invoices.push(newInvoice({
+      partnerId: sub.partnerId,
+      description: `From ${sub.fileName}`,
+      studentCount: sub.roster.length,
+      dueDate: "2026-09-30",
+    }));
     S.submissionPage = null;
     notice("ok", `${sub.roster.length} students enrolled and a draft invoice raised. The partner cannot see the draft.`);
   },
@@ -3080,13 +3163,18 @@ const ACTIONS = {
     // rather than a filename. It does not survive a refresh; nothing here does.
     ATTACHMENTS.set(id, chosen);
 
-    DB.invoices.push({
-      id, partnerId: val("ni-partner"), description: val("ni-desc"),
+    DB.invoices.push(newInvoice({
+      id,
+      partnerId: val("ni-partner"),
+      description: val("ni-desc"),
       certification: val("ni-cert"),
-      studentCount: Number(val("ni-count")) || 1, partnerRevenue: rev, gimiAmount: gimi,
-      status: "DRAFT", issuedAt: null, dueDate: val("ni-due"),
-      pdf: chosen.name, qbRef: val("ni-qb") || null, payment: null,
-    });
+      studentCount: Number(val("ni-count")) || 1,
+      partnerRevenue: rev,
+      gimiAmount: gimi,
+      dueDate: val("ni-due"),
+      pdf: chosen.name,
+      qbRef: val("ni-qb") || null,
+    }));
     S.open["add-invoice"] = false;
     notice("ok", `Draft created with ${chosen.name} attached. Invisible to the partner until you send it.`);
   },
@@ -3113,7 +3201,7 @@ const ACTIONS = {
         <label class="field">
           <span>Attached invoice</span>
           ${i.pdf
-            ? `<span style="font-size:13px">${esc(i.pdf)}${attached ? ` · ${Math.max(1, Math.round(attached.size / 1024))} KB` : " · placeholder, no file"}</span>`
+            ? `<span>${esc(i.pdf)}${attached ? ` · ${Math.max(1, Math.round(attached.size / 1024))} KB` : " · placeholder, no file"}</span>`
             : `<input type="file" id="sd-file" accept="application/pdf,image/*">`}
         </label>
         <div class="grid-2">
@@ -3284,13 +3372,16 @@ const ACTIONS = {
   "add-lead"() {
     if (!val("al-company")) return notice("bad", "Give the company a name.");
     const rev = centsFrom(val("al-rev") || "0");
-    DB.leads.push({
-      id: "l" + Date.now(), partnerId: myId(), company: val("al-company"),
-      contact: val("al-contact"), website: "", stage: "NEW",
-      probability: val("al-prob"), metStatus: val("al-met"), docsSent: val("al-docs"),
-      products: [], expectedRevenue: rev ?? 0, expectedCloseDate: null,
-      supportNeeded: val("al-support"), reviewed: false,
-    });
+    DB.leads.push(newLead({
+      partnerId: myId(),
+      company: val("al-company"),
+      contact: val("al-contact"),
+      probability: val("al-prob"),
+      metStatus: val("al-met"),
+      docsSent: val("al-docs"),
+      expectedRevenue: rev ?? 0,
+      supportNeeded: val("al-support"),
+    }));
     S.open["add-lead"] = false;
     notice("ok", "Shared with GIMI. They will come back to you with support.");
   },
@@ -3311,11 +3402,11 @@ const ACTIONS = {
   "drop-stage"(el) { S.staging.splice(Number(el.dataset.id), 1); },
   "submit-staging"() {
     if (S.staging.some(rowIncomplete)) return notice("bad", "Fix the incomplete rows first.");
-    DB.submissions.push({
-      id: "sub" + Date.now(), partnerId: myId(),
+    DB.submissions.push(newSubmission({
+      partnerId: myId(),
       fileName: "enrollment_" + Date.now().toString().slice(-4) + ".xlsx",
-      submittedAt: "2026-07-29", status: "PENDING", roster: [...S.staging],
-    });
+      roster: [...S.staging],
+    }));
     notice("ok", `${S.staging.length} people sent to GIMI. They review every name before enrolling anyone.`);
     S.staging = []; S.open.enroll = false;
   },
