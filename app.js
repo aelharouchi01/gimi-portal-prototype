@@ -31,6 +31,8 @@ const S = {
 
   // Id of the partner whose own page is open, or null for the list.
   partnerPage: null,
+  // Id of the lead whose own page is open, or null for the list.
+  leadPage: null,
 
   // Element to refocus after a re-render, so typing in a search box survives it.
   focus: null,
@@ -49,6 +51,13 @@ const $ = (sel) => document.querySelector(sel);
  * behind it, and the download says so rather than pretending.
  */
 const ATTACHMENTS = new Map();
+
+/**
+ * Real files attached to leads, keyed by document id. Same reasoning as ATTACHMENTS:
+ * GIMI attaches a document, and the partner who owns that lead downloads the exact
+ * file to take into a client conversation.
+ */
+const LEAD_FILES = new Map();
 
 const money = (cents) =>
   cents === null || cents === undefined
@@ -322,6 +331,8 @@ function adminShell() {
   // partner is on screen at a time instead of the table growing under your cursor.
   const body = S.partnerPage
     ? partnerPage(S.partnerPage)
+    : S.leadPage
+    ? leadPage(S.leadPage)
     : {
         overview: adminOverview,
         partners: adminPartners,
@@ -845,7 +856,8 @@ function partnerPage(id) {
         <thead><tr><th>Company</th><th>Stage</th><th>Probability</th><th>Met</th><th>Docs sent</th><th class="num">Expected</th><th>Reviewed</th></tr></thead>
         <tbody>${leads.map((l) => `
           <tr>
-            <td>${esc(l.company)}<span class="sub">${esc(l.contact)}</span></td>
+            <td><button class="btn-link" data-action="open-lead" data-id="${l.id}">${esc(l.company)}</button>
+          <span class="sub">${esc(l.contact)}${l.documents.length ? ` · ${l.documents.length} document${l.documents.length > 1 ? "s" : ""} from GIMI` : ""}</span></td>
             <td>${esc(LEAD_STAGE[l.stage])}</td>
             <td>${esc(l.probability)}</td>
             <td>${esc(MET_STATUS[l.metStatus])}</td>
@@ -1155,6 +1167,115 @@ function invoiceForm() {
 
 /* ----------------------------------------------------------- admin: leads */
 
+/**
+ * One lead, on its own page. The same page for both sides, because GIMI and the
+ * partner need to be looking at the same thing when they talk about it. What differs
+ * is who can do what: GIMI attaches documents and marks the lead reviewed, the
+ * partner reads and downloads. Both can comment.
+ *
+ * This is where documents reach the partner. GIMI attaches the case study and the
+ * course outline here, and the partner downloads them to use in front of the client.
+ */
+function leadPage(id) {
+  const l = DB.leads.find((x) => x.id === id);
+  const isAdmin = S.identity.kind === "ADMIN";
+
+  // A partner may only ever open their own lead. Checked here, not by hiding a link.
+  if (!l || (!isAdmin && l.partnerId !== myId())) {
+    S.leadPage = null;
+    return isAdmin ? adminLeads() : partnerLeads();
+  }
+
+  return `
+  <div style="margin-bottom:18px">
+    <button class="btn-link" data-action="close-lead">← ${isAdmin ? "All leads" : "Your leads"}</button>
+  </div>
+
+  <div class="page-head section-head">
+    <div>
+      <h1>${esc(l.company)}</h1>
+      <p class="count">
+        ${esc(l.contact)}${l.website ? ` · ${esc(l.website)}` : ""}
+        ${isAdmin ? ` · shared by ${esc(partnerName(l.partnerId))}` : ""}
+        · shared ${date(l.submittedAt)}
+        · ${l.reviewed ? badge("Reviewed by GIMI", "badge-paid") : badge("With GIMI", "badge-pending")}
+      </p>
+    </div>
+    ${isAdmin && !l.reviewed ? `<div class="toolbar">
+      <button class="btn btn-sm" data-action="review-lead" data-id="${l.id}">Mark reviewed</button>
+    </div>` : ""}
+  </div>
+
+  <section class="block block-plain">
+    <div class="kpi-row">
+      ${kpi("network", "Expected value", money(l.expectedRevenue), "The partner's own estimate.")}
+      ${kpi("network", "Stage", LEAD_STAGE[l.stage])}
+      ${kpi("network", "Probability", l.probability)}
+      ${kpi("network", "Expected close", l.expectedCloseDate ? date(l.expectedCloseDate) : "Not set")}
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="block">
+      <h2>Qualification</h2>
+      <table><tbody>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Have they met</td><td style="border:0;padding:4px 0">${esc(MET_STATUS[l.metStatus])}</td></tr>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Documents sent</td><td style="border:0;padding:4px 0">${esc(DOCS_SENT[l.docsSent])}</td></tr>
+        <tr><td style="border:0;padding:4px 14px 4px 0;color:var(--muted)">Products of interest</td><td style="border:0;padding:4px 0">${l.products.length ? l.products.map((p) => `<span class="chip">${esc(p)}</span>`).join("") : "—"}</td></tr>
+      </tbody></table>
+      <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:16px 0 6px">Support asked for from GIMI</h4>
+      <p style="font-size:13.5px">${esc(l.supportNeeded) || "Nothing recorded."}</p>
+    </section>
+
+    <section class="block">
+      <div class="section-head">
+        <h2>Documents from GIMI (${l.documents.length})</h2>
+        ${isAdmin ? `<div class="toolbar">
+          <button class="btn btn-ghost btn-sm" data-action="open-attach-lead-doc" data-id="${l.id}">+ Attach a document</button>
+        </div>` : ""}
+      </div>
+      ${l.documents.length === 0
+        ? `<div class="empty">${isAdmin
+            ? "Nothing attached. Anything you attach here reaches the partner."
+            : "GIMI has not attached anything for this lead yet."}</div>`
+        : `<div class="table-scroll"><table>
+            <thead><tr><th>Document</th><th>Added</th><th class="right">Actions</th></tr></thead>
+            <tbody>${l.documents.map((d) => `
+              <tr>
+                <td>${esc(d.name)}<span class="sub">by ${esc(d.addedBy)}</span></td>
+                <td class="nowrap">${date(d.when)}</td>
+                <td><div class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-action="download-lead-doc" data-id="${d.id}">Download</button>
+                  ${isAdmin ? `<button class="btn btn-danger btn-sm" data-action="remove-lead-doc" data-lead="${l.id}" data-id="${d.id}">Remove</button>` : ""}
+                </div></td>
+              </tr>`).join("")}
+            </tbody>
+          </table></div>`}
+    </section>
+  </div>
+
+  <section class="block">
+    <h2>Comments (${l.comments.length})</h2>
+    <label class="field">
+      <textarea id="lc-text" placeholder="${isAdmin
+        ? "Advice or context for the partner about this lead"
+        : "A question for GIMI about this lead"}"></textarea>
+    </label>
+    <button class="btn btn-sm" data-action="add-lead-comment" data-id="${l.id}">Add comment</button>
+    <div style="margin-top:14px">
+      ${l.comments.length === 0
+        ? `<div class="empty">No comments yet.</div>`
+        : l.comments.map((c) => `
+          <div style="border:1px solid var(--line);border-left:3px solid ${c.fromGimi ? "var(--teal)" : "var(--yellow)"};border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px">
+            <p style="font-size:11.5px;color:var(--faint);margin-bottom:5px">
+              ${esc(c.author)}${c.fromGimi ? " · GIMI" : " · partner"} · ${date(c.when)}
+            </p>
+            <p style="font-size:13.5px">${esc(c.text)}</p>
+          </div>`).join("")}
+    </div>
+  </section>`;
+}
+
 const LEAD_HEAD = `<thead><tr>
   <th>Company</th><th>Partner</th><th>Stage</th><th>Probability</th><th>Met</th>
   <th>Docs sent</th><th class="num">Expected</th><th>Close</th><th class="right">Actions</th>
@@ -1186,8 +1307,8 @@ function adminLeads() {
 function leadRows(rows) {
   return rows.map((l) => `
       <tr>
-        <td>${esc(l.company)}
-            <span class="sub">${esc(l.contact)}${l.supportNeeded ? ` · asked for: ${esc(l.supportNeeded)}` : ""}</span></td>
+        <td><button class="btn-link" data-action="open-lead" data-id="${l.id}">${esc(l.company)}</button>
+            <span class="sub">${esc(l.contact)}${l.documents.length ? ` · ${l.documents.length} document${l.documents.length > 1 ? "s" : ""}` : ""}${l.comments.length ? ` · ${l.comments.length} comment${l.comments.length > 1 ? "s" : ""}` : ""}</span></td>
         <td>${esc(partnerName(l.partnerId))}</td>
         <td>${esc(LEAD_STAGE[l.stage])}</td>
         <td>${esc(l.probability)}</td>
@@ -1397,7 +1518,7 @@ function partnerShell() {
   const tabs = partnerTabs();
   if (!tabs.some(([k]) => k === S.partnerTab)) S.partnerTab = "dashboard";
 
-  const body = {
+  const body = S.leadPage ? leadPage(S.leadPage) : {
     dashboard: partnerDashboard,
     enroll: partnerStudents,
     invoices: partnerInvoices,
@@ -1728,7 +1849,8 @@ const MY_LEAD_HEAD = `<thead><tr>
 function myLeadRows(rows) {
   return rows.map((l) => `
     <tr>
-      <td>${esc(l.company)}<span class="sub">${esc(l.contact)}</span></td>
+      <td><button class="btn-link" data-action="open-lead" data-id="${l.id}">${esc(l.company)}</button>
+          <span class="sub">${esc(l.contact)}${l.documents.length ? ` · ${l.documents.length} document${l.documents.length > 1 ? "s" : ""} from GIMI` : ""}</span></td>
       <td>${esc(LEAD_STAGE[l.stage])}</td>
       <td>${esc(l.probability)}</td>
       <td>${esc(MET_STATUS[l.metStatus])}</td>
@@ -2425,6 +2547,68 @@ const ACTIONS = {
     const l = DB.leads.find((x) => x.id === el.dataset.id);
     l.reviewed = true;
     notice("ok", `${l.company} marked reviewed.`);
+  },
+
+  /* ---------------------------------------------------------- the lead page */
+  "open-lead"(el) { S.leadPage = el.dataset.id; S.notice = null; },
+  "close-lead"() { S.leadPage = null; S.notice = null; },
+
+  "add-lead-comment"(el) {
+    const l = DB.leads.find((x) => x.id === el.dataset.id);
+    const text = val("lc-text");
+    if (text.length < 2) return notice("bad", "Write something first.");
+    const fromGimi = S.identity.kind === "ADMIN";
+    l.comments.unshift({ when: TODAY, author: S.identity.name, fromGimi, text });
+    notice("ok", fromGimi
+      ? `Comment added. ${partnerName(l.partnerId)} can read it on their own lead.`
+      : "Comment added. GIMI can see it.");
+  },
+
+  "open-attach-lead-doc"(el) {
+    S.modal = {
+      title: "Attach a document",
+      body: `
+        <label class="field">
+          <span>File</span>
+          <input type="file" id="ld-file">
+          <span class="hint">The partner downloads this exact file to use with their client.</span>
+        </label>`,
+      foot: `<button class="btn btn-ghost btn-sm" data-action="close-modal">Cancel</button>
+             <button class="btn btn-sm" data-action="attach-lead-doc" data-id="${el.dataset.id}">Attach</button>`,
+    };
+  },
+
+  "attach-lead-doc"(el) {
+    const l = DB.leads.find((x) => x.id === el.dataset.id);
+    const file = $("#ld-file")?.files?.[0] ?? null;
+    if (!file) return notice("bad", "Choose a file first.");
+    const docId = "ld" + Date.now();
+    LEAD_FILES.set(docId, file);
+    l.documents.push({ id: docId, name: file.name, addedBy: S.identity.name, when: TODAY });
+    S.modal = null;
+    notice("ok", `${file.name} attached. ${partnerName(l.partnerId)} can download it now.`);
+  },
+
+  "download-lead-doc"(el) {
+    const file = LEAD_FILES.get(el.dataset.id);
+    if (!file) {
+      const doc = DB.leads.flatMap((l) => l.documents).find((d) => d.id === el.dataset.id);
+      return notice("info", `${doc.name} is a placeholder in this prototype. Attach a real file to see it download.`);
+    }
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url; link.download = file.name;
+    document.body.appendChild(link); link.click(); link.remove();
+    URL.revokeObjectURL(url);
+    notice("ok", `Downloaded ${file.name}.`);
+  },
+
+  "remove-lead-doc"(el) {
+    const l = DB.leads.find((x) => x.id === el.dataset.lead);
+    const doc = l.documents.find((d) => d.id === el.dataset.id);
+    l.documents = l.documents.filter((d) => d.id !== el.dataset.id);
+    LEAD_FILES.delete(el.dataset.id);
+    notice("ok", `Removed ${doc.name}. The partner can no longer download it.`);
   },
   "add-lead"() {
     if (!val("al-company")) return notice("bad", "Give the company a name.");

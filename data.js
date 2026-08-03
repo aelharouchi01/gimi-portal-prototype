@@ -338,6 +338,24 @@ leadSeed.forEach(([company, contact, stage, prob, met, docs, rev, support], n) =
     expectedCloseDate: n % 2 ? "2026-11-20" : null,
     supportNeeded: support,
     reviewed: n > 2,
+
+    /* A thread on the lead, shared between GIMI and the partner who owns it. This
+       is the one place a partner reads something GIMI wrote about their own lead. */
+    comments: n === 0
+      ? [{
+          when: "2026-06-22", author: "GIMI Admin", fromGimi: true,
+          text: "Good fit for Level 3. Attached the mining case study and the L3 outline. Lead with the audit angle, they already have an internal innovation team.",
+        }]
+      : [],
+
+    /* Documents GIMI attaches for the partner to use in front of the client.
+       Seeded entries have a name and no file behind them, and say so on download. */
+    documents: n === 0
+      ? [
+          { id: "ld1", name: "GIMI-L3-outline.pdf", addedBy: "GIMI Admin", when: "2026-06-22" },
+          { id: "ld2", name: "Mining-sector-case-study.pdf", addedBy: "GIMI Admin", when: "2026-06-22" },
+        ]
+      : [],
   });
 });
 
